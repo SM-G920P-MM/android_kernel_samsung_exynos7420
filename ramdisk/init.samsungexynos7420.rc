@@ -1,10 +1,9 @@
-
 import init.samsungexynos7420.usb.rc
 import init.wifi.rc
 import init.baseband.rc
 import init.carrier.rc
 import init.fac.rc
-import init.zeroflte_fac.rc
+import init.zerolte_fac.rc
 
 on early-init
     mount debugfs /sys/kernel/debug /sys/kernel/debug
@@ -169,14 +168,10 @@ on boot
 #    write /proc/sys/vm/min_free_kbytes 32768
 #    write /proc/sys/vm/min_free_order_shift 1
 
-    #setprop ro.radio.noril yes
-
-    # IPSec for VOLTE
-    chown root system /dev/socket
-    chmod 0775 /dev/socket
-
     # Allow to access debugfs
     chmod 755 /sys/kernel/debug
+
+    #setprop ro.radio.noril yes
 
     # Set up kernel tracing, but disable it by default
     chmod 0222 /sys/kernel/debug/tracing/trace_marker
@@ -452,10 +447,6 @@ on boot
 # SSWAP
     write /proc/sys/vm/swappiness 130
 
-    # FM Radio
-    chmod 0640 /dev/fmradio
-    chown system system /dev/fmradio
-
 on fs
     start fs_mount
     wait /dev/block/mounted
@@ -507,6 +498,7 @@ on fs
     chown system radio /sys/class/input_booster/level
     chown system radio /sys/class/input_booster/head
     chown system radio /sys/class/input_booster/tail
+    chown system radio /sys/class/input_booster/touch/control
 
 # Permissions for EFS
     chown radio system /efs
@@ -534,7 +526,16 @@ on fs
     chown system radio /sys/class/lcd/panel/lcd_type
     chown system system /sys/class/lcd/panel/siop_enable
     chown system system /sys/class/lcd/panel/temperature
-    chown system media_rw /sys/class/backlight/panel/weakness_hbm_comp
+    chown system radio /sys/class/lcd/panel/mcd_mode
+    chown system media_rw /sys/class/backlight/panel/weakness_hbm_comp	
+
+# Permissions for LCD HMT
+    chown system system /sys/class/lcd/panel/hmt_on
+    chown system system /sys/class/lcd/panel/hmt_bright
+    chown system system /sys/class/mdnie/mdnie/hmt_color_temperature
+
+# Permissions for LCD ALPM
+    chown system system /sys/class/lcd/panel/alpm
 
 # Permissions for MDNIE
     chown system media_rw /sys/class/mdnie/mdnie/mode
@@ -725,12 +726,12 @@ on fs
 # Permission for DRM Key
     chmod 0644 /factory/wv.keys
 
-#ARGOSD network_throughput
+# ARGOSD network_throughput
     chown system system /dev/network_throughput
 
 # TSP & Pressure Sensor
-    chown system system /dev/i2c-7
-    chmod 0660 /dev/i2c-7
+    chown system system /dev/i2c-6
+    chmod 0660 /dev/i2c-6
 
 # ARGOSD
 service argos-daemon /system/bin/argosd
@@ -823,20 +824,6 @@ on property:sys.boot_completed=1
     write /proc/sys/vm/dirty_background_bytes 20971520
     start fstrim-service
 
-#
-# start netmgrd
-#
-on property:ro.use_data_netmgrd=true
-    start netmgrd
-
-#
-# start multiple rilds based on multisim property
-#
-#on property:ro.multisim.simslotcount=2
-#    stop ril-daemon
-#    start ril-daemon
-#    start ril-daemon1
-
 # LPM
 on property:ro.bootmode=charger
     start fs_mount
@@ -873,6 +860,15 @@ service TvoutService_C /system/bin/bintvoutservice
 on property:ro.SecEDS.enable=false
     stop TvoutService_C
 
+# DRK/CS service
+service cs_service /system/bin/cs
+    class main
+    user system
+    group system
+    disabled
+on property:sys.mobicoredaemon.enable=true
+    start cs_service
+
 # Secure Storage startup
 service secure_storage /system/bin/secure_storage_daemon
     class core
@@ -907,28 +903,12 @@ on property:persist.sys.storage_preload=1
 on property:persist.sys.storage_preload=0
     start umount_service
 
-# DRK/CS service
-service cs_service /system/bin/cs
-    class main
-    user system
-    group system
-    disabled
-on property:sys.mobicoredaemon.enable=true
-    start cs_service
-
 # SSWAP
 service swapon /sbin/sswap
     class core
     user root
     group root
     oneshot
-
-# IPSec for VOLTE
-service ipsec-daemon /system/bin/IPSecService
-    class main
-    socket ipsec_socket stream 660 system system
-    user system
-    group system net_raw inet net_admin
 
 # RTC logging daemon
 service rtc_log /system/bin/rtc_log.sh
@@ -952,6 +932,16 @@ on property:sys.boot_completed=1
 on property:security.semdaemonfinish=1
     stop sem_daemon
 
+# IPSec for VOLTE
+    chown root system /dev/socket
+    chmod 0775 /dev/socket
+
+# IPSec for VOLTE
+service ipsec-daemon /system/bin/IPSecService
+    class main
+    socket ipsec_socket stream 660 system system
+    user system
+    group system net_raw inet net_admin
 
 # On-Board DM
 service DMM-deamon /system/bin/dmm_v2
