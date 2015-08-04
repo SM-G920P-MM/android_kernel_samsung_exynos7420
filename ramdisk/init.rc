@@ -1271,6 +1271,16 @@ on property:persist.security.tlc.ccm=1
   start ccm
   setprop persist.security.tlc.ccm 0
 
+# dcm
+  service dcm /system/bin/tlc_server DCM
+  user system
+  group system 
+  disabled
+
+on property:persist.security.tlc.dcm=1  
+  start dcm
+  setprop persist.security.tlc.dcm 0
+
 # tui
   service tui /system/bin/tlc_server TUI
   user system
