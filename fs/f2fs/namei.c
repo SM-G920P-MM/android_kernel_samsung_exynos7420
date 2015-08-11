@@ -647,7 +647,8 @@ out:
 }
 
 #ifdef CONFIG_F2FS_FS_ENCRYPTION
-static const char *f2fs_encrypted_follow_link(struct dentry *dentry, void **cookie)
+static void *f2fs_encrypted_follow_link(struct dentry *dentry,
+						struct nameidata *nd)
 {
 	struct page *cpage = NULL;
 	char *caddr, *paddr = NULL;
@@ -665,7 +666,7 @@ static const char *f2fs_encrypted_follow_link(struct dentry *dentry, void **cook
 
 	cpage = read_mapping_page(inode->i_mapping, 0, NULL);
 	if (IS_ERR(cpage))
-		return ERR_CAST(cpage);
+		return cpage;
 	caddr = kmap(cpage);
 	caddr[size] = 0;
 
@@ -698,10 +699,11 @@ static const char *f2fs_encrypted_follow_link(struct dentry *dentry, void **cook
 
 	/* Null-terminate the name */
 	paddr[res] = '\0';
+	nd_set_link(nd, paddr);
 
 	kunmap(cpage);
 	page_cache_release(cpage);
-	return *cookie = paddr;
+	return NULL;
 errout:
 	f2fs_fname_crypto_free_buffer(&pstr);
 	kunmap(cpage);

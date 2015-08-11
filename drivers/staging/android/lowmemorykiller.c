@@ -72,6 +72,13 @@ static int lowmem_minfree[6] = {
 	16 * 1024,	/* 64MB */
 };
 static int lowmem_minfree_size = 4;
+
+// lowmem_nul is used to trick userspace to actually write nothing
+static int lowmem_nul[6] = {
+	0, 0, 0, 0,
+};
+static int lowmem_nul_size = 4;
+
 static uint32_t lowmem_lmkcount = 0;
 
 static unsigned long lowmem_deathpending_timeout;
@@ -114,10 +121,8 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 #endif
 
 	si_meminfo(&si);
-	si_swapinfo_single(&si, 10); // We have set priority 10 for vnswap
 
 	other_free += other_file;
-	other_free += si.freeswap;
 
 	if (lowmem_adj_size < array_size)
 		array_size = lowmem_adj_size;
@@ -549,6 +554,8 @@ module_param_array_named(adj, lowmem_adj, short, &lowmem_adj_size,
 module_param_array_named(minfree, lowmem_minfree, uint, &lowmem_minfree_size,
 			 S_IRUGO | S_IWUSR);
 module_param_named(debug_level, lowmem_debug_level, uint, S_IRUGO | S_IWUSR);
+module_param_array_named(nul, lowmem_nul, uint, &lowmem_nul_size,
+			 S_IRUGO | S_IWUSR);
 module_param_named(lmkcount, lowmem_lmkcount, uint, S_IRUGO);
 #ifdef OOM_COUNT_READ
 module_param_named(oomcount, oom_count, uint, S_IRUGO);
