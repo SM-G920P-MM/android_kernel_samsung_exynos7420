@@ -452,6 +452,11 @@ on boot
 # SSWAP
     write /proc/sys/vm/swappiness 130
 
+# io_is_busy
+    write /sys/devices/system/cpu/cpu0/cpufreq/interactive/io_is_busy 1
+    write /sys/devices/system/cpu/cpu4/cpufreq/interactive/io_is_busy 1
+    write /sys/devices/virtual/sec/sec_slow/io_is_busy 1
+
 on fs
     start fs_mount
     wait /dev/block/mounted
@@ -871,36 +876,6 @@ service TvoutService_C /system/bin/bintvoutservice
 on property:ro.SecEDS.enable=false
     stop TvoutService_C
 
-# DRK/CS service
-service cs_service /system/bin/cs
-    class main
-    user system
-    group system
-    disabled
-on property:sys.mobicoredaemon.enable=true
-    start cs_service
-
-# Secure Storage startup
-service secure_storage /system/bin/secure_storage_daemon
-    class core
-    user system
-    group system
-    disabled
-
-on property:ro.securestorage.support=true
-    mkdir /dev/.secure_storage
-    chmod 0711 /dev/.secure_storage
-    chown system system /dev/.secure_storage
-    restorecon -R /dev/.secure_storage
-    start secure_storage
-
-on property:ro.securestorage.knox=true
-    mkdir /dev/.secure_storage
-    chmod 0711 /dev/.secure_storage
-    chown system system /dev/.secure_storage
-    restorecon -R /dev/.secure_storage
-    start secure_storage
-
 # umount service
 service umount_service /system/bin/umount /preload
     disabled
@@ -913,6 +888,15 @@ on property:persist.sys.storage_preload=1
 
 on property:persist.sys.storage_preload=0
     start umount_service
+
+# DRK/CS service
+service cs_service /system/bin/cs
+    class main
+    user system
+    group system
+    disabled
+on property:sys.mobicoredaemon.enable=true
+    start cs_service
 
 # SSWAP
 service swapon /sbin/sswap
