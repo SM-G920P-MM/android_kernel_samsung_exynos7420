@@ -1414,7 +1414,9 @@ static ssize_t misc_write(struct file *filp, const char __user *data,
 	 * Send the skb with a link device
 	 */
 
+#ifdef DEBUG_MODEM_IF
 	trace_mif_event(skb, tx_bytes, FUNC);
+#endif
 
 	ret = ld->send(ld, iod, skb);
 	if (ret < 0) {
@@ -1599,7 +1601,7 @@ static int vnet_xmit(struct sk_buff *skb, struct net_device *ndev)
 		skb_new = skb_copy_expand(skb, headroom, tailroom, GFP_ATOMIC);
 		if (!skb_new) {
 			mif_info("%s: ERR! skb_copy_expand fail\n", iod->name);
-			goto retry;
+			return NETDEV_TX_BUSY;
 		}
 	}
 
@@ -1657,16 +1659,6 @@ static int vnet_xmit(struct sk_buff *skb, struct net_device *ndev)
 		dev_kfree_skb_any(skb);
 
 	return NETDEV_TX_OK;
-
-retry:
-	/*
-	If @skb has been expanded to $skb_new, only $skb_new must be freed here
-	because @skb will be reused by NET_TX.
-	*/
-	if (skb_new)
-		dev_kfree_skb_any(skb_new);
-
-	return NETDEV_TX_BUSY;
 
 drop:
 	ndev->stats.tx_dropped++;
