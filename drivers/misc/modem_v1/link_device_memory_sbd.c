@@ -160,7 +160,7 @@ static int setup_sbd_rb(struct sbd_link_device *sl, struct sbd_ring_buffer *rb,
 	(1) Allocate an array of data buffers in SHMEM.
 	(2) Register the address of each data buffer.
 	*/
-	alloc_size = (rb->len * rb->buff_size);
+	alloc_size = (size_t)(rb->len * rb->buff_size);
 	rb->buff_rgn = (u8 *)buff_alloc(sl, alloc_size);
 	if (!rb->buff_rgn)
 		return -ENOMEM;
@@ -628,8 +628,9 @@ int tx_frames_to_rb(struct sbd_ring_buffer *rb)
 		tx_bytes += ret;
 
 		log_ipc_pkt(LNK_TX, rb->ch, skb);
-
+#ifdef DEBUG_MODEM_IF
 		trace_mif_event(skb, skb->len, FUNC);
+#endif
 
 		dev_kfree_skb_any(skb);
 	}
