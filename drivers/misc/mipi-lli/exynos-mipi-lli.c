@@ -50,6 +50,9 @@
 #define SYSTEM_CLOCK_PERIOD		(10)
 #define MPHY_OVTM_DUMP_MAX		(144)
 
+static DEFINE_MUTEX(lli_mutex_lock);
+static atomic_t init_start;
+
 static unsigned int credit_cnt = 10;
 module_param(credit_cnt, int, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(credit_cnt, "credit waiting count");
@@ -258,6 +261,8 @@ static void exynos_lli_sys_init(struct work_struct *work)
 {
 	struct mipi_lli *lli = container_of(work, struct mipi_lli, wq_sys_init);
 
+	mutex_lock(&lli_mutex_lock);
+
 	/* enable LLI_PHY_CONTROL */
 	writel(1, lli->pmu_regs);
 
@@ -266,7 +271,7 @@ static void exynos_lli_sys_init(struct work_struct *work)
 	exynos_lli_clock_init(lli);
 	if (!lli->is_clk_enabled) {
 		exynos_lli_clock_gating(lli, false);
-		dev_err(lli->dev, "Clock is enabled\n");
+		dev_dbg(lli->dev, "Clock is enabled\n");
 		lli->is_clk_enabled = true;
 	}
 	/* Set clk divider to provide 100Mhz clk for cfg-clk of mipi-lli. */
@@ -281,6 +286,8 @@ static void exynos_lli_sys_init(struct work_struct *work)
 	writel(0x3FFFF, lli->regs + EXYNOS_DME_LLI_INTR_ENABLE);
 	writel(1, lli->regs + EXYNOS_DME_LLI_RESET);
 
+	mutex_unlock(&lli_mutex_lock);
+
 	if(lli->event == LLI_EVENT_RESUME)
 		mipi_lli_event_irq(lli, LLI_EVENT_RESUME);
 }
@@ -290,7 +297,10 @@ static int exynos_lli_init(struct mipi_lli *lli)
 	unsigned long irq_flags;
 
 	spin_lock_irqsave(&lli->lock, irq_flags);
-	schedule_work(&lli->wq_sys_init);
+	if(atomic_read(&init_start) == 0) {
+		atomic_set(&init_start, 1);
+		queue_work(lli->wq, &lli->wq_sys_init);
+	}
 	spin_unlock_irqrestore(&lli->lock, irq_flags);
 
 	return 0;
@@ -594,7 +604,7 @@ static int exynos_lli_resume(struct mipi_lli *lli)
 
 	/* re-init all of lli resource */
 	lli->event = LLI_EVENT_RESUME;
-	schedule_work(&lli->wq_sys_init);
+	queue_work(lli->wq, &lli->wq_sys_init);
 	spin_unlock(&lli->lock);
 
 	return 0;
@@ -707,64 +717,66 @@ static irqreturn_t exynos_mipi_lli_thread(int irq, void *_dev)
 	phy = dev_get_drvdata(lli->mphy);
 
 	if(lli->event == LLI_EVENT_UNMOUNTED) {
-		if (lli->is_clk_enabled) {
+		mutex_lock(&lli_mutex_lock);
+
+		if (lli->is_clk_enabled && (atomic_read(&init_start) == 0)) {
 			exynos_lli_clock_gating(lli, true);
-			dev_err(dev, "Clock is gated\n");
+			dev_dbg(dev, "Clock is gated\n");
 			lli->is_clk_enabled = false;
 		}
 
 		mipi_lli_event_irq(lli, LLI_EVENT_UNMOUNTED);
-		dev_err(dev, "Unmounted\n");
-
-		return IRQ_HANDLED;
-	}
-
-	rx_fsm_state = readl(phy->loc_regs + PHY_RX_FSM_STATE(0));
-	tx_fsm_state = readl(phy->loc_regs + PHY_TX_FSM_STATE(0));
-	csa_status = readl(lli->regs + EXYNOS_DME_CSA_SYSTEM_STATUS);
-	credit = readl(lli->regs + EXYNOS_DL_DBG_TX_CREDTIS);
+		dev_dbg(dev, "Unmounted\n");
+		mutex_unlock(&lli_mutex_lock);
+	 } else if(lli->event == LLI_EVENT_MOUNTED) {
+		rx_fsm_state = readl(phy->loc_regs + PHY_RX_FSM_STATE(0));
+		tx_fsm_state = readl(phy->loc_regs + PHY_TX_FSM_STATE(0));
+		csa_status = readl(lli->regs + EXYNOS_DME_CSA_SYSTEM_STATUS);
+		credit = readl(lli->regs + EXYNOS_DL_DBG_TX_CREDTIS);
 
 #if defined(CONFIG_SOC_EXYNOS7420)
-	afc_val = readl(phy->pma_regs + (0x1F*4));
+		afc_val = readl(phy->pma_regs + (0x1F*4));
 #else
-	writel(0x1, lli->regs + EXYNOS_PA_MPHY_CMN_ENABLE);
-	afc_val = readl(phy->loc_regs + (0x27*4));
-	writel(0x0, lli->regs + EXYNOS_PA_MPHY_CMN_ENABLE);
+		writel(0x1, lli->regs + EXYNOS_PA_MPHY_CMN_ENABLE);
+		afc_val = readl(phy->loc_regs + (0x27*4));
+		writel(0x0, lli->regs + EXYNOS_PA_MPHY_CMN_ENABLE);
 #endif
 
-	if (is_first) {
-		phy->afc_val = afc_val;
-		is_first = false;
-	}
-
-	dev_err(dev, "rx=%x, tx=%x, afc=%x, status=%x, pa_err=%x\n",
-		rx_fsm_state, tx_fsm_state, afc_val, csa_status, pa_err_cnt);
-
-	if (!credit) {
-		u32 i = 0;
-		for (i = 0; i < credit_cnt; i++) {
-			usleep_range(1000, 1100);
-			credit = readl(lli->regs + EXYNOS_DL_DBG_TX_CREDTIS);
-			if (credit)
-				break;
+		if (is_first) {
+			phy->afc_val = afc_val;
+			is_first = false;
 		}
-		dev_err(dev, "waited for %dms for CREDITS: tx=%x, rx=%x\n", i,
-				readl(phy->loc_regs + PHY_RX_FSM_STATE(0)),
-				readl(phy->loc_regs + PHY_TX_FSM_STATE(0)));
+
+		dev_dbg(dev, "rx=%x, tx=%x, afc=%x, status=%x, pa_err=%x\n",
+			rx_fsm_state, tx_fsm_state, afc_val, csa_status, pa_err_cnt);
+
 		if (!credit) {
-			dev_err(dev, "ERR: Mount failed: %d\n", ++mnt_fail_cnt);
-			mipi_lli_debug_info();
-			dev_err(dev, "DUMP: ok:%d fail:%d roe:%d",
-					mnt_cnt, mnt_fail_cnt, roe_cnt);
-			return IRQ_HANDLED;
+			u32 i = 0;
+			for (i = 0; i < credit_cnt; i++) {
+				usleep_range(1000, 1100);
+				credit = readl(lli->regs + EXYNOS_DL_DBG_TX_CREDTIS);
+				if (credit)
+					break;
+			}
+			dev_dbg(dev, "waited for %dms for CREDITS: tx=%x, rx=%x\n", i,
+					readl(phy->loc_regs + PHY_RX_FSM_STATE(0)),
+					readl(phy->loc_regs + PHY_TX_FSM_STATE(0)));
+			if (!credit) {
+				dev_dbg(dev, "ERR: Mount failed: %d\n", ++mnt_fail_cnt);
+				mipi_lli_debug_info();
+				dev_dbg(dev, "DUMP: ok:%d fail:%d roe:%d",
+						mnt_cnt, mnt_fail_cnt, roe_cnt);
+				return IRQ_HANDLED;
+			}
 		}
-	}
 
-	atomic_set(&lli->state, LLI_MOUNTED);
-	mipi_lli_event_irq(lli, LLI_EVENT_MOUNTED);
+		atomic_set(&lli->state, LLI_MOUNTED);
+		atomic_set(&init_start, 0);
+		mipi_lli_event_irq(lli, LLI_EVENT_MOUNTED);
 
-	dev_err(dev, "Mount ok:%d fail:%d roe:%d pa_err:%d\n",
-			++mnt_cnt, mnt_fail_cnt, roe_cnt, pa_err_cnt);
+		dev_dbg(dev, "Mount ok:%d fail:%d roe:%d pa_err:%d\n",
+				++mnt_cnt, mnt_fail_cnt, roe_cnt, pa_err_cnt);
+	 }
 
 	return IRQ_HANDLED;
 }
@@ -780,14 +792,14 @@ static irqreturn_t exynos_mipi_lli_irq(int irq, void *_dev)
 	status = readl(lli->regs + EXYNOS_DME_LLI_INTR_STATUS);
 
 	if (status & INTR_SW_RESET_DONE) {
-		dev_err(dev, "SW_RESET_DONE ++\n");
+		dev_dbg(dev, "SW_RESET_DONE ++\n");
 		exynos_lli_setting(lli);
 		lli->event = LLI_EVENT_RESET;
 		lli->is_debug_possible = true;
 		mipi_lli_event_irq(lli, LLI_EVENT_RESET);
 
 		if (status & INTR_RESET_ON_ERROR_DETECTED) {
-			dev_err(dev, "LLI is wating for mount "
+			dev_dbg(dev, "LLI is wating for mount "
 					"after LINE-RESET..\n");
 			atomic_set(&lli->state, LLI_WAITFORMOUNT);
 			mipi_lli_event_irq(lli, LLI_EVENT_WAITFORMOUNT);
@@ -795,7 +807,7 @@ static irqreturn_t exynos_mipi_lli_irq(int irq, void *_dev)
 	}
 
 	if (status & INTR_MPHY_HIBERN8_EXIT_DONE) {
-		dev_info(dev, "HIBERN8_EXIT_DONE: rx=%x, tx=%x\n",
+		dev_dbg(dev, "HIBERN8_EXIT_DONE: rx=%x, tx=%x\n",
 				readl(phy->loc_regs + PHY_RX_FSM_STATE(0)),
 				readl(phy->loc_regs + PHY_TX_FSM_STATE(0)));
 		mdelay(1);
@@ -803,13 +815,13 @@ static irqreturn_t exynos_mipi_lli_irq(int irq, void *_dev)
 	}
 
 	if (status & INTR_MPHY_HIBERN8_ENTER_DONE)
-		dev_info(dev, "HIBERN8_ENTER_DONE\n");
+		dev_dbg(dev, "HIBERN8_ENTER_DONE\n");
 
 	if (status & INTR_PA_PLU_DETECTED)
-		dev_info(dev, "PLU_DETECT\n");
+		dev_dbg(dev, "PLU_DETECT\n");
 
 	if (status & INTR_PA_PLU_DONE) {
-		dev_info(dev, "PLU_DONE\n");
+		dev_dbg(dev, "PLU_DONE\n");
 
 		if (lli->modem_info.automode)
 			exynos_mipi_lli_set_automode(lli, true);
@@ -851,7 +863,7 @@ static irqreturn_t exynos_mipi_lli_irq(int irq, void *_dev)
 
 	if (status & INTR_LLI_MOUNT_DONE) {
 		writel(status, lli->regs + EXYNOS_DME_LLI_INTR_STATUS);
-		dev_err(dev, "Mount intr\n");
+		dev_dbg(dev, "Mount intr\n");
 		lli->event = LLI_EVENT_MOUNTED;
 
 		return IRQ_WAKE_THREAD;
@@ -860,7 +872,7 @@ static irqreturn_t exynos_mipi_lli_irq(int irq, void *_dev)
 	if (status & INTR_LLI_UNMOUNT_DONE) {
 		atomic_set(&lli->state, LLI_UNMOUNTED);
 		writel(status, lli->regs + EXYNOS_DME_LLI_INTR_STATUS);
-		dev_err(dev, "Unmount intr\n");
+		dev_dbg(dev, "Unmount intr\n");
 		lli->is_debug_possible = false;
 		lli->event = LLI_EVENT_UNMOUNTED;
 
@@ -1100,6 +1112,13 @@ static int exynos_mipi_lli_probe(struct platform_device *pdev)
 #endif
 
 	INIT_WORK(&lli->wq_print_dump, exynos_lli_print_dump);
+	lli->wq = alloc_workqueue("lli_wq", WQ_NON_REENTRANT | WQ_UNBOUND | WQ_HIGHPRI, 1);
+
+	if (!lli->wq) {
+		dev_err(dev, "ERR! fail to create lli workqueue!! \n");
+		return -EFAULT;
+	}
+
 	INIT_WORK(&lli->wq_sys_init, exynos_lli_sys_init);
 
 	mipi_lli_get_setting(lli);
@@ -1134,9 +1153,10 @@ static int exynos_mipi_lli_probe(struct platform_device *pdev)
 	lli->is_suspended = true;
 	lli->is_debug_possible = false;
 	lli->event = LLI_EVENT_UNMOUNTED;
+	atomic_set(&init_start, 0);
 
 	dev_debugfs_add(lli);
-	dev_info(dev, "Registered MIPI-LLI interface\n");
+	dev_dbg(dev, "Registered MIPI-LLI interface\n");
 	return ret;
 }
 
