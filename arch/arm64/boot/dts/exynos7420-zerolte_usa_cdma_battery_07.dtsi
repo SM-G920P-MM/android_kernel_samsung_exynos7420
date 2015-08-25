@@ -173,7 +173,7 @@
 		battery,recharging_total_time = <5400>;
 		battery,charging_reset_time = <0>;
 
-		battery,chg_float_voltage = <4375>;
+		battery,chg_float_voltage = <4350>;
 
 		battery,self_discharging_en;
 		battery,force_discharging_limit = <650>;
@@ -348,6 +348,6 @@
 		battery,chg_polarity_en = <0>;
 		battery,chg_gpio_status = <0>;
 		battery,chg_polarity_status = <0>;
-		battery,chg_float_voltage = <4375>;
+		battery,chg_float_voltage = <4350>;
 	};
 };
