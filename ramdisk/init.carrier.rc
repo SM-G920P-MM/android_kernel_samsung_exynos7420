@@ -1,14 +1,66 @@
 import init.gps.rc
 
-# For RIL
-#
-# CAUTION! : Check duplicated script in 
-# "android/vendor/samsung/common/data/chipvendor/cmc/..."
-# before feature will be defined at here.
-#
+on post-fs-data
+
+# SKT PM PlayReady
+    mkdir /data/playready 771 system skt
+    chown system skt /data/playready
+    chmod 0771 /data/playready
+
+# SKT DRM for hoppin
+    mkdir /data/data/.sktdrm 0775
+    chown system radio /data/data/.sktdrm
+    chmod 0775 /data/data/.sktdrm
+
+# for SKT TBASED
+    mkdir /data/tbased 0775 root wifi
+    chown root wifi /data/tbased
+    chmod 0775 /data/tbased
+
+    chown wifi wifi /system/lib/libiwlan_module.so
+    chmod 0644 /system/lib/libiwlan_module.so
+    chmod 0755 /system/bin/tbased
+
+# MOBILE OFFICE Permanent memory access
+    mkdir /efs/security 0771 root root
+    chown radio system /efs/security
+    chmod 0771 /efs/security
+
+# SKT TBASE
+service tbased /system/bin/tbased
+    class main
+    user root
+    oneshot
+
+on boot
+
+# tdmb
+    chown system system /dev/tdmb
+    chmod 0660 /dev/tdmb
+
+# IPSec for VOLTE
+    chown root system /dev/socket
+    chmod 0775 /dev/socket
+
+# Permissions for usb_lock
+    chown system radio /sys/class/android_usb/android0/usb_lock
+
+# IPSec for VOLTE
+service ipsec-daemon /system/bin/IPSecService
+    class main
+    socket ipsec_socket stream 660 system system
+    user system
+    group system net_raw inet net_admin
 
 on fs
     #For cpefs partition
     mkdir /cpefs 0771 radio system
     chown radio system /cpefs
     chmod 0771 /cpefs
+
+# tdmb
+service dmb /system/bin/dmbserver
+    class main
+    user media
+    group system radio inet misc audio camera graphics net_bt net_bt_admin sdcard_rw sdcard_r shell media_rw
+	
