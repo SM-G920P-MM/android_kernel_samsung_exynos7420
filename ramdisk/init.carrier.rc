@@ -1,5 +1,12 @@
 import init.gps.rc
 
+# For RIL
+#
+# CAUTION! : Check duplicated script in 
+# "android/vendor/samsung/common/data/chipvendor/cmc/..."
+# before feature will be defined at here.
+#
+
 on fs
     #For cpefs partition
     mkdir /cpefs 0771 radio system
