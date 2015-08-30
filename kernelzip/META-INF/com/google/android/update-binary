@@ -56,12 +56,6 @@ rm -rf container/*KNOX*
 sed -i -e '/ro.securestorage.knox/c\ro.securestorage.knox=false' build.prop
 sed -i -e '/ro.securestorage.support/c\ro.securestorage.support=false' build.prop
 
-ui_print " - installing new Graphics drivers"
-chown 0.0 -R /tmp/arter97/system
-find /tmp/arter97/system -type d -exec chmod 755 {} \;
-find /tmp/arter97/system -type f -exec chmod 644 {} \;
-cp -rp /tmp/arter97/system/* .
-
 if [ ! -e /system/swapfile ]; then
 	ui_print " - creating /system/swapfile"
 	FREE=$(df -k /system | grep "/system" | awk '{print $3}')
