@@ -432,6 +432,17 @@ on boot
 	# MSP FactoryApp
 	mkdir /efs/FactoryApp 0775 system system
 
+# lcd a3-line
+    copy /system/vendor/firmware/a3_line_rev1.dat /efs/FactoryApp/a3_line_rev1.dat
+    copy /system/vendor/firmware/a3_line_rev2.dat /efs/FactoryApp/a3_line_rev2.dat
+    copy /system/vendor/firmware/a2_line_rev2.dat /efs/FactoryApp/a2_line_rev2.dat
+    chown system system /efs/FactoryApp/a3_line_rev1.dat
+    chown system system /efs/FactoryApp/a3_line_rev2.dat
+    chown system system /efs/FactoryApp/a2_line_rev2.dat
+    chmod 0640 /efs/FactoryApp/a3_line_rev1.dat
+    chmod 0640 /efs/FactoryApp/a3_line_rev2.dat
+    chmod 0640 /efs/FactoryApp/a2_line_rev2.dat
+
 # permissions for bluetooth.
     setprop ro.bt.bdaddr_path "/efs/bluetooth/bt_addr"
     chown bluetooth net_bt_stack ro.bt.bdaddr_path
@@ -549,6 +560,7 @@ on fs
     chown system radio /sys/class/lcd/panel/lcd_type
     chown system system /sys/class/lcd/panel/siop_enable
     chown system system /sys/class/lcd/panel/temperature
+    chown system radio /sys/class/lcd/panel/mcd_mode
     chown system media_rw /sys/class/backlight/panel/weakness_hbm_comp
 
 # Permissions for LCD HMT
