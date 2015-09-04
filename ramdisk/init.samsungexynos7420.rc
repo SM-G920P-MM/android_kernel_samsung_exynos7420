@@ -928,13 +928,6 @@ service swapon /sbin/sswap
     group root
     oneshot
 
-# IPSec for VOLTE
-service ipsec-daemon /system/bin/IPSecService
-    class main
-    socket ipsec_socket stream 660 system system
-    user system
-    group system net_raw inet net_admin
-
 # RTC logging daemon
 service rtc_log /system/bin/rtc_log.sh
     class main
@@ -961,8 +954,9 @@ on property:security.semdaemonfinish=1
     chown root system /dev/socket
     chmod 0775 /dev/socket
 
-# On-Board DM
-service DMM-deamon /system/bin/dmm_v2
+# IPSec for VOLTE
+service ipsec-daemon /system/bin/IPSecService
     class main
-    user root
-    group root system radio inet net_raw
+    socket ipsec_socket stream 660 system system
+    user system
+    group system net_raw inet net_admin
