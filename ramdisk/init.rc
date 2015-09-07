@@ -954,6 +954,7 @@ on property:sys.sysctl.tcp_def_init_rwnd=*
 
 on property:init.svc.bootanim=stopped
     start uci
+    write /sys/module/lazyplug/parameters/lazyplug_active 1
     write /proc/sys/vm/compact_memory 1
 
 # Reload SE Android Policy for MDM
