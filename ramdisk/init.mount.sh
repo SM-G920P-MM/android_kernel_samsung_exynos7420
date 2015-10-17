@@ -3,6 +3,8 @@
 export PATH=/res/asset:$PATH
 export ext4=1
 
+mount -t ext4 -o ro,noatime,nodiratime,noauto_da_alloc,discard,data=ordered,errors=panic /dev/block/platform/15570000.ufs/by-name/CPEFS /cpefs
+
 mount -t ext4 -o ro,noatime,nodiratime,noauto_da_alloc,nodiscard,data=ordered,errors=panic /dev/block/platform/15570000.ufs/by-name/SYSTEM /system
 mount -t f2fs -o ro,noatime,nodiratime,background_gc=off,nodiscard /dev/block/platform/15570000.ufs/by-name/SYSTEM /system
 

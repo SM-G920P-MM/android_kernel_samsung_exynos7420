@@ -7,7 +7,6 @@ ro.debuggable=1
 ro.adb.secure=0
 persist.sys.usb.config=mtp,adb
 ro.zygote=zygote64_32
-ro.multisim.simslotcount=1
 dalvik.vm.dex2oat-Xms=64m
 dalvik.vm.dex2oat-Xmx=512m
 dalvik.vm.image-dex2oat-Xms=64m
@@ -37,3 +36,7 @@ persist.radio.add_power_save=1
 rild.libpath=/system/lib64/libsec-ril.so
 rild.libpath2=/system/lib64/libsec-ril-dsds.so
 ro.smps.gain.spk=0.8
+
+# Dual-sim
+persist.radio.multisim.config=dsds
+ro.multisim.simslotcount=2
