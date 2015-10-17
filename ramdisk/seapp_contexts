@@ -66,5 +66,3 @@ user=_app seinfo=mmphone domain=carrier_app type=app_data_file
 user=system seinfo=platform name=diagandroid.iqd domain=diagandroid_app type=system_app_data_file
 user=_app seinfo=tmosimlock name=com.tmobile.simlock domain=filtered_untrusted_app type=app_data_file
 user=_app seinfo=tmosimlock name=com.metro.simlock domain=filtered_untrusted_app type=app_data_file
-user=_app seinfo=tbaseplatform domain=carrier_app type=app_data_file
-user=system seinfo=lguiwlan domain=system_app type=system_app_data_file
