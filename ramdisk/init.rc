@@ -513,6 +513,9 @@ on boot
     chmod 0220 /sys/module/lowmemorykiller/parameters/adj
     chown root system /sys/module/lowmemorykiller/parameters/minfree
     chmod 0220 /sys/module/lowmemorykiller/parameters/minfree
+    chown root root /sys/module/lowmemorykiller/parameters/vmpressure_file_min
+    chmod 0660 /sys/module/lowmemorykiller/parameters/vmpressure_file_min
+    write /sys/module/lowmemorykiller/parameters/vmpressure_file_min 40960
     # for BT MAC address
     mkdir /efs/bluetooth 0775 radio system
     # if already exist
