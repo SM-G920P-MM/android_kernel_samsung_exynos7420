@@ -213,7 +213,6 @@ enum {
 	LIGHT_IR_SENSOR = 24,
 #endif
 	INTERRUPT_GYRO_SENSOR,
-	TILT_DETECTOR,
 	META_SENSOR,
 	SENSOR_MAX,
 };
@@ -304,9 +303,6 @@ struct sensor_value {
 		};
 		struct { /* significant motion */
 			u8 sig_motion;
-		};
-		struct { /* tilt detector */
-			u8 tilt_detector;
 		};
 		struct meta_data_event { /* meta data */
 			s32 what;
@@ -450,9 +446,6 @@ struct ssp_data {
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
 	int light_ir_log_cnt;
 #endif
-	int acc_type;
-	int pressure_type;
-	atomic_t int_gyro_enable;
 };
 
 struct ssp_big {

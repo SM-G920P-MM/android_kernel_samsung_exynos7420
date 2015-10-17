@@ -1,22 +1,18 @@
-import init.gps.rc
+# Copyright (C) 2012 The Android Open Source Project
+#
+# IMPORTANT: Do not create world writable files or directories.
+# This is a common source of Android security bugs.
+#
+# this is for QCOM CP models.
 
 on boot
-    # SEC_PRODUCT_FEATURE_COMMON_USE_MULTISIM
-    setprop ro.multisim.simslotcount 1
+    # IPSec for VOLTE
+    chown root system /dev/socket
+    chmod 0775 /dev/socket
 
-on fs
-# 2nd RIL
-service ril-daemon1 /system/bin/rild -l /system/lib64/libsec-ril-dsds.so -c 2
+# IPSec for VOLTE
+service ipsec-daemon /system/bin/IPSecService
     class main
-    socket rild2 stream 660 root radio
-    socket rild-debug2 stream 660 radio system
-    user root
-    group radio cache inet misc audio sdcard_r sdcard_rw log
-    disabled
-
-#SLocation
-service cellgeofenced /system/bin/cellgeofenced
-    class main
-    socket cellgeofence seqpacket 0660 gps system
-    user gps
-    group system inet
+    socket ipsec_socket stream 660 system system
+    user system
+    group system net_raw inet net_admin

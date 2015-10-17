@@ -243,18 +243,6 @@ static int ssp_parse_dt(struct device *dev,
 		    data->glass_type = 0;
 #endif
 
-	/* acc type */
-    	if (of_property_read_u32(np, "ssp-acc-type", &data->acc_type))
-		    data->acc_type = 0;
-
-	ssp_info("acc-type = %d", data->acc_type);
-
-	/* pressure type */
-    	if (of_property_read_u32(np, "ssp-pressure-type", &data->pressure_type))
-		    data->pressure_type = 0;
-
-	ssp_info("pressure-type = %d", data->pressure_type);
-
 	/* mag matrix */
 	if (of_property_read_u8_array(np, "ssp,mag-array",
 		data->pdc_matrix, sizeof(data->pdc_matrix))) {

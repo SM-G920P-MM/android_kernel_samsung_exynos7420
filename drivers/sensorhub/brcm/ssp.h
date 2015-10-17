@@ -199,7 +199,6 @@ enum {
 #define MSG2SSP_AP_MOBEAM_COUNT_SET		0x33
 #define MSG2SSP_AP_MOBEAM_START			0x34
 #define MSG2SSP_AP_MOBEAM_STOP			0x35
-#define MSG2SSP_AP_GEOMAG_LOGGING		0x36
 #define MSG2SSP_AP_SENSOR_LPF			0x37
 
 #define MSG2SSP_AP_IRDATA_SEND		0x38
@@ -240,8 +239,8 @@ enum {
 #if defined(CONFIG_SENSORS_SSP_TMG399x)
 #define DEFUALT_HIGH_THRESHOLD			130
 #define DEFUALT_LOW_THRESHOLD			90
-#define DEFUALT_CAL_HIGH_THRESHOLD		130
-#define DEFUALT_CAL_LOW_THRESHOLD		54
+#define DEFUALT_CAL_HIGH_THRESHOLD		120
+#define DEFUALT_CAL_LOW_THRESHOLD		55
 #else
 #define DEFUALT_HIGH_THRESHOLD			2000
 #define DEFUALT_LOW_THRESHOLD			1400
@@ -257,9 +256,6 @@ enum {
 #define MIN_GYRO		-32768
 
 #define MAX_COMP_BUFF 60
-
-/* ak0911 magnetic pdc matrix size */
-#define PDC_SIZE                       27
 
 /* temphumidity sensor*/
 struct shtc1_buffer {
@@ -295,12 +291,8 @@ enum {
 	TEMPERATURE_HUMIDITY_SENSOR,
 	LIGHT_SENSOR,
 	PROXIMITY_RAW,
-#ifdef CONFIG_SENSORS_SSP_SX9306
 	GRIP_SENSOR,
 	ORIENTATION_SENSOR,
-#else
-	ORIENTATION_SENSOR = 12,
-#endif
 	STEP_DETECTOR = 13,
 	SIG_MOTION_SENSOR,
 	GYRO_UNCALIB_SENSOR,
@@ -315,9 +307,8 @@ enum {
 	LIGHT_IR_SENSOR = 24,
 #endif
 #ifdef CONFIG_SENSORS_SSP_INTERRUPT_GYRO_SENSOR
-	INTERRUPT_GYRO_SENSOR = 25,
+	INTERRUPT_GYRO_SENSOR,
 #endif
-	TILT_DETECTOR,
 	SENSOR_MAX,
 };
 
@@ -390,7 +381,6 @@ struct sensor_value {
 #endif
 		s32 pressure[3];
 		u32 step_diff;
-		u8 tilt_detector;
 		struct meta_data_event meta_data;
 	};
 	u64 timestamp;
@@ -492,14 +482,12 @@ struct ssp_data {
 	struct iio_dev *game_rot_indio_dev;
 	struct iio_dev *step_det_indio_dev;
 	struct iio_dev *pressure_indio_dev;
-	struct iio_dev *tilt_indio_dev;
 	struct iio_trigger *accel_trig;
 	struct iio_trigger *gyro_trig;
 	struct iio_trigger *rot_trig;
 	struct iio_trigger *game_rot_trig;
 	struct iio_trigger *step_det_trig;
 	struct iio_trigger *pressure_det_trig;
-	struct iio_trigger *tilt_trig;
 
 	struct input_dev *light_input_dev;
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
@@ -636,7 +624,6 @@ struct ssp_data {
 	int mag_position;
 	u8 mag_matrix_size;
 	u8 *mag_matrix;
-	unsigned char pdc_matrix[PDC_SIZE];
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	struct miscdevice shtc1_device;
 	char *comp_engine_ver;
@@ -670,9 +657,6 @@ struct ssp_data {
 #ifdef CONFIG_SENSORS_MULTIPLE_GLASS_TYPE
 	u32 glass_type;
 #endif
-	int acc_type;
-
-	atomic_t int_gyro_enable;
 };
 
 struct ssp_big {
@@ -809,7 +793,6 @@ int print_mcu_debug(char *, int *, int);
 void report_temp_humidity_data(struct ssp_data *, struct sensor_value *);
 void report_shake_cam_data(struct ssp_data *, struct sensor_value *);
 void report_bulk_comp_data(struct ssp_data *data);
-void report_tilt_data(struct ssp_data *, struct sensor_value *);
 unsigned int get_module_rev(struct ssp_data *data);
 void reset_mcu(struct ssp_data *);
 void convert_acc_data(s16 *);

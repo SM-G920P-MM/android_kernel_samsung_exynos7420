@@ -231,11 +231,6 @@ static int ssp_parse_dt(struct device *dev,struct  ssp_data *data)
 	pr_info("[SSP] acc-posi[%d] mag-posi[%d]\n",
 		data->accel_position, data->mag_position);
 
-	/* acc type */
-	if (of_property_read_u32(np, "ssp-acc-type", &data->acc_type))
-		    data->acc_type = 0;
-	pr_info("[SSP] acc-type = %d\n", data->acc_type);
-
 	if (of_property_read_u32(np, "ssp-ap-rev", &data->ap_rev))
 		data->ap_rev = 0;
 
@@ -288,8 +283,8 @@ static int ssp_parse_dt(struct device *dev,struct  ssp_data *data)
 #endif
 	return errorno;
 
-#if defined(CONFIG_SENSORS_SSP_YAS532) || defined(CONFIG_SENSORS_SSP_YAS537)
 dt_exit:
+#if defined(CONFIG_SENSORS_SSP_YAS532) || defined(CONFIG_SENSORS_SSP_YAS537)
 	if(data->static_matrix != NULL)
     	kfree(data->static_matrix); 
 #endif
