@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfg80211.c 556026 2015-05-12 06:55:40Z $
+ * $Id: wl_cfg80211.c 572607 2015-07-20 10:40:32Z $
  */
 /* */
 #include <typedefs.h>
@@ -2689,13 +2689,13 @@ __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 				if ((interworking_ie = wl_cfg80211_find_interworking_ie(
 					(u8 *)request->ie, request->ie_len)) != NULL) {
 					if ((err = wl_cfg80211_add_iw_ie(cfg, ndev, bssidx,
-					       VNDR_IE_CUSTOM_FLAG, interworking_ie->id,
+							VNDR_IE_CUSTOM_FLAG, interworking_ie->id,
 							interworking_ie->data,
 							interworking_ie->len)) != BCME_OK) {
 						goto scan_out;
 					}
 				} else if (cfg->wl11u) {
-				/* we have to clear IW IE and disable gratuitous APR */
+					/* we have to clear IW IE and disable gratuitous APR */
 					wl_cfg80211_clear_iw_ie(cfg, ndev, bssidx);
 					wldev_iovar_setint_bsscfg(ndev, "grat_arp", 0, bssidx);
 					cfg->wl11u = FALSE;
@@ -4271,7 +4271,7 @@ wl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 			WL_DBG(("Currently not associated!\n"));
 	} else {
 		/* if status is DISCONNECTING, wait for disconnection terminated max 500 ms */
-		wait_cnt = 500/10;
+		wait_cnt = 200/10;
 		while (wl_get_drv_status(cfg, DISCONNECTING, dev) && wait_cnt) {
 			WL_DBG(("Waiting for disconnection terminated, wait_cnt: %d\n", wait_cnt));
 			wait_cnt--;
@@ -4570,14 +4570,6 @@ wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 	}
 #endif /* ESCAN_RESULT_PATCH */
 
-#ifdef CUSTOMER_HW4
-	if ((wl_get_drv_status(cfg, CONNECTING, dev) ||
-		wl_get_drv_status(cfg, CONNECTED, dev)) && act) {
-		WL_ERR(("Wait for complete of connecting \n"));
-		OSL_SLEEP(200);
-	}
-#endif /* CUSTOMER_HW4 */
-
 	if (act) {
 		/*
 		* Cancel ongoing scan to sync up with sme state machine of cfg80211.
@@ -4588,16 +4580,23 @@ wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 			wl_notify_escan_complete(cfg, dev, true, true);
 		}
 #endif /* ESCAN_RESULT_PATCH */
-		wl_set_drv_status(cfg, DISCONNECTING, dev);
-		scbval.val = reason_code;
-		memcpy(&scbval.ea, curbssid, ETHER_ADDR_LEN);
-		scbval.val = htod32(scbval.val);
-		err = wldev_ioctl(dev, WLC_DISASSOC, &scbval,
-			sizeof(scb_val_t), true);
-		if (unlikely(err)) {
-			wl_clr_drv_status(cfg, DISCONNECTING, dev);
-			WL_ERR(("error (%d)\n", err));
-			return err;
+		if (wl_get_drv_status(cfg, CONNECTING, dev) ||
+			wl_get_drv_status(cfg, CONNECTED, dev)) {
+				wl_set_drv_status(cfg, DISCONNECTING, dev);
+				scbval.val = reason_code;
+				memcpy(&scbval.ea, curbssid, ETHER_ADDR_LEN);
+				scbval.val = htod32(scbval.val);
+				err = wldev_ioctl(dev, WLC_DISASSOC, &scbval,
+						sizeof(scb_val_t), true);
+				if (unlikely(err)) {
+					wl_clr_drv_status(cfg, DISCONNECTING, dev);
+					WL_ERR(("error (%d)\n", err));
+					return err;
+				}
+#ifdef CUSTOMER_HW4
+				WL_ERR(("Wait for complete of connecting \n"));
+				OSL_SLEEP(200);
+#endif /* CUSTOMER_HW4 */
 		}
 	}
 #ifdef CUSTOM_SET_CPUCORE
@@ -8075,6 +8074,11 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 	int i;
 	int ret = 0;
 
+	if (!request) {
+		WL_ERR(("Sched scan request was NULL\n"));
+		return -EINVAL;
+	}
+
 	WL_DBG(("Enter \n"));
 	WL_PNO((">>> SCHED SCAN START\n"));
 	WL_PNO(("Enter n_match_sets:%d   n_ssids:%d \n",
@@ -8083,7 +8087,7 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 		request->n_ssids, pno_time, pno_repeat, pno_freq_expo_max));
 
 
-	if (!request || !request->n_ssids || !request->n_match_sets) {
+	if (!request->n_ssids || !request->n_match_sets) {
 		WL_ERR(("Invalid sched scan req!! n_ssids:%d \n", request->n_ssids));
 		return -EINVAL;
 	}
@@ -9378,6 +9382,11 @@ wl_notify_roaming_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 		wl_update_prof(cfg, ndev, e, &act, WL_PROF_ACT);
 		wl_update_prof(cfg, ndev, NULL, (void *)&e->addr, WL_PROF_BSSID);
 	}
+#ifdef DHD_LOSSLESS_ROAMING
+	else if ((event == WLC_E_ROAM || event == WLC_E_BSSID) && status != WLC_E_STATUS_SUCCESS) {
+		wl_del_roam_timeout(cfg);
+	}
+#endif
 	return err;
 }
 
@@ -12175,7 +12184,8 @@ void wl_cfg80211_detach(void *para)
 
 static void wl_wakeup_event(struct bcm_cfg80211 *cfg)
 {
-	if (cfg->event_tsk.thr_pid >= 0) {
+	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
+	if (dhd->up && (cfg->event_tsk.thr_pid >= 0)) {
 		DHD_OS_WAKE_LOCK(cfg->pub);
 		up(&cfg->event_tsk.sema);
 	}
@@ -12235,13 +12245,13 @@ static s32 wl_event_handler(void *data)
 				if (dhd->busstate == DHD_BUS_DOWN) {
 					WL_ERR((": BUS is DOWN.\n"));
 				} else
-				cfg->evt_handler[e->etype] (cfg, cfgdev, &e->emsg, e->edata);
+					cfg->evt_handler[e->etype](cfg, cfgdev, &e->emsg, e->edata);
 			} else {
 				WL_DBG(("Unknown Event (%d): ignoring\n", e->etype));
 			}
 			wl_put_event(e);
-		}
 		DHD_OS_WAKE_UNLOCK(cfg->pub);
+	}
 	}
 	WL_ERR(("was terminated\n"));
 	complete_and_exit(&tsk->completed, 0);
@@ -12984,6 +12994,8 @@ static s32 __wl_cfg80211_down(struct bcm_cfg80211 *cfg)
 	}
 #endif /* WL11U */
 
+	cfg->disable_roam_event = false;
+
 	DNGL_FUNC(dhd_cfg80211_down, (cfg));
 
 	return err;
@@ -13554,7 +13566,7 @@ wl_cfg80211_tdls_oper(struct wiphy *wiphy, struct net_device *dev,
 			info.mode = TDLS_MANUAL_EP_WFD_TPQ;
 			WL_ERR(("%s TDLS TUNNELED PRBOBE REQUEST\n", __FUNCTION__));
 		} else {
-		info.mode = TDLS_MANUAL_EP_DISCOVERY;
+			info.mode = TDLS_MANUAL_EP_DISCOVERY;
 		}
 		break;
 	case NL80211_TDLS_SETUP:
@@ -13563,7 +13575,7 @@ wl_cfg80211_tdls_oper(struct wiphy *wiphy, struct net_device *dev,
 			tdls_auto_mode = false;
 			ret = dhd_tdls_enable(dev, false, tdls_auto_mode, NULL);
 			if (ret < 0) {
-			return ret;
+				return ret;
 			}
 		} else {
 			tdls_auto_mode = true;
@@ -14281,9 +14293,9 @@ wl_cfg80211_add_iw_ie(struct bcm_cfg80211 *cfg, struct net_device *ndev, s32 bss
 
 	/* Validate the pktflag parameter */
 	if ((pktflag & ~(VNDR_IE_BEACON_FLAG | VNDR_IE_PRBRSP_FLAG |
-	            VNDR_IE_ASSOCRSP_FLAG | VNDR_IE_AUTHRSP_FLAG |
-	            VNDR_IE_PRBREQ_FLAG | VNDR_IE_ASSOCREQ_FLAG|
-	            VNDR_IE_CUSTOM_FLAG))) {
+			VNDR_IE_ASSOCRSP_FLAG | VNDR_IE_AUTHRSP_FLAG |
+			VNDR_IE_PRBREQ_FLAG | VNDR_IE_ASSOCREQ_FLAG|
+			VNDR_IE_CUSTOM_FLAG))) {
 		WL_ERR(("invalid packet flag 0x%x\n", pktflag));
 		return BCME_BADARG;
 	}
@@ -14300,7 +14312,7 @@ wl_cfg80211_add_iw_ie(struct bcm_cfg80211 *cfg, struct net_device *ndev, s32 bss
 		if (!memcmp(&getbuf[TLV_HDR_LEN], data, data_len)) {
 			WL_DBG(("skip to set interworking IE\n"));
 			return BCME_OK;
-	}
+		}
 	}
 
 	strncpy(ie_setbuf.cmd, "add", VNDR_IE_CMD_LEN - 1);
