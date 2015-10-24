@@ -53,6 +53,7 @@ rm -rf container/*KNOX*
 sed -i -e '/ro.securestorage.knox/c\ro.securestorage.knox=false' build.prop
 sed -i -e '/ro.securestorage.support/c\ro.securestorage.support=false' build.prop
 
+cd /
 ui_print " - tuning file systems"
 fstrim -v /system > /dev/null 2>&1
 fstrim -v /data   > /dev/null 2>&1
