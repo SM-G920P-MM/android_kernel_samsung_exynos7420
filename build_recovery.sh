@@ -24,7 +24,7 @@ CONFIG_USB_ANDROID_SAMSUNG_MTP
 # CONFIG_USB_ANDROID_SAMSUNG_MTP is not set
 ' >> .config
 	make oldconfig
-	make "$@" || exit 1
+	make AR='$(CROSS_COMPILE)gcc-ar' "$@" || exit 1
 fi
 
 echo "Building new ramdisk"

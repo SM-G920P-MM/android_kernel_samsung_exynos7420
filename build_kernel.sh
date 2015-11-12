@@ -15,7 +15,7 @@ if [ "${1}" = "skip" ] ; then
 else
 	echo "Compiling kernel"
 	cp defconfig .config
-	make "$@" || exit 1
+	make AR='$(CROSS_COMPILE)gcc-ar' "$@" || exit 1
 fi
 
 echo "Building new ramdisk"
