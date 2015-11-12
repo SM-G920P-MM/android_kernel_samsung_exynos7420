@@ -11,6 +11,11 @@ obj-y		     += dev.o ethtool.o dev_addr_lists.o dst.o netevent.o \
 			neighbour.o rtnetlink.o utils.o link_watch.o filter.o \
 			sock_diag.o dev_ioctl.o
 
+# various version of gcc have a LTO bug where the &&labels used in the
+# BPF interpreter can cause linker errors when spread incorrectly over
+# partitions. Disable LTO for BPF for now
+CFLAGS_filter.o = $(DISABLE_LTO)
+
 obj-$(CONFIG_XFRM) += flow.o
 obj-y += net-sysfs.o
 obj-$(CONFIG_PROC_FS) += net-procfs.o

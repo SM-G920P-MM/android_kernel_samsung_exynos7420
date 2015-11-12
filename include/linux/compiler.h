@@ -249,6 +249,10 @@ void ftrace_likely_update(struct ftrace_branch_data *f, int val, int expect);
 #define noinline
 #endif
 
+#ifndef __noreorder
+#define __noreorder		/* unimplemented */
+#endif
+
 /*
  * Rather then using noinline to prevent stack consumption, use
  * noinline_for_stack instead.  For documentation reasons.
