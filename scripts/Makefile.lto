@@ -31,18 +31,6 @@ ifneq ($(call cc-ifversion, -ge, 0409,y),y)
     $(warning "WARNING: GCC $(call cc-version) builds slower and is deprecated for LTO.")
 endif
 
-# We need HJ Lu's Linux binutils because mainline binutils does not
-# support mixing assembler and LTO code in the same ld -r object.
-# Should check if the gcc plugin ld is the expected one too
-# XXX some Fedora binutils should also support it. How to check for that?
-ifneq ($(call ld-ifversion,-ge,22710001,y),y)
-    NO_LTO := 1
-    $(warning "WARNING: Too old linker version $(call ld-version) for kernel LTO.")
-    $(warning "WARNING: You need Linux binutils. CONFIG_LTO disabled.")
-endif
-
-# Check for options that need specific compiler versions
-
 # needs -mrecord-mcount support
 ifeq (${CONFIG_FUNCTION_TRACER},y)
 ifneq ($(call cc-ifversion,-ge, 0500,y),y)
