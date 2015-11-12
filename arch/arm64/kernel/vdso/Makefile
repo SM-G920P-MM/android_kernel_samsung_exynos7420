@@ -19,6 +19,9 @@ ccflags-y += -nostdlib -Wl,-soname=linux-vdso.so.1 \
 # down to collect2, resulting in silent corruption of the vDSO image.
 ccflags-y += -Wl,-shared
 
+# vDSO is unfriendly with LTO
+ccflags-y += $(DISABLE_LTO)
+
 obj-y += vdso.o
 extra-y += vdso.lds vdso-offsets.h
 CPPFLAGS_vdso.lds += -P -C -U$(ARCH)
