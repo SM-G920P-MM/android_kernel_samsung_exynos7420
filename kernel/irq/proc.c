@@ -417,10 +417,12 @@ void init_irq_proc(void)
 
 #ifdef CONFIG_GENERIC_IRQ_SHOW
 
+#if 0
 int __weak arch_show_interrupts(struct seq_file *p, int prec)
 {
 	return 0;
 }
+#endif
 
 #ifndef ACTUAL_NR_IRQS
 # define ACTUAL_NR_IRQS nr_irqs

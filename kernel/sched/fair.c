@@ -5771,10 +5771,14 @@ static unsigned long default_scale_freq_power(struct sched_domain *sd, int cpu)
 	return SCHED_POWER_SCALE;
 }
 
+#if 0
 unsigned long __weak arch_scale_freq_power(struct sched_domain *sd, int cpu)
 {
 	return default_scale_freq_power(sd, cpu);
 }
+#else
+unsigned long arch_scale_freq_power(struct sched_domain *sd, int cpu);
+#endif
 
 static unsigned long default_scale_smt_power(struct sched_domain *sd, int cpu)
 {

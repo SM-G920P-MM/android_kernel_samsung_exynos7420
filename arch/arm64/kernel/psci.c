@@ -189,7 +189,7 @@ static int psci_migrate(unsigned long cpuid)
 	return psci_to_linux_errno(err);
 }
 
-static const struct of_device_id psci_of_match[] __initconst = {
+static const struct of_device_id psci_of_match[] = {
 	{ .compatible = "arm,psci",	},
 	{},
 };

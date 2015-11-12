@@ -81,6 +81,7 @@ static inline int cpu_idle_poll(void)
 
 /* Weak implementations for optional arch specific functions */
 void __weak arch_cpu_idle_prepare(void) { }
+#if 0
 void __weak arch_cpu_idle_enter(void) { }
 void __weak arch_cpu_idle_exit(void) { }
 void __weak arch_cpu_idle_dead(void) { }
@@ -89,6 +90,7 @@ void __weak arch_cpu_idle(void)
 	cpu_idle_force_poll = 1;
 	local_irq_enable();
 }
+#endif
 
 /*
  * Generic idle loop implementation

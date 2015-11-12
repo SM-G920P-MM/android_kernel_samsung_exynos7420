@@ -64,6 +64,7 @@ static inline u64 notrace cyc_to_ns(u64 cyc, u32 mult, u32 shift)
 	return (cyc * mult) >> shift;
 }
 
+#if 0
 unsigned long long notrace sched_clock(void)
 {
 	u64 epoch_ns;
@@ -84,6 +85,7 @@ unsigned long long notrace sched_clock(void)
 	cyc = (cyc - epoch_cyc) & sched_clock_mask;
 	return epoch_ns + cyc_to_ns(cyc, cd.mult, cd.shift);
 }
+#endif
 
 /*
  * Atomically update the sched_clock epoch.

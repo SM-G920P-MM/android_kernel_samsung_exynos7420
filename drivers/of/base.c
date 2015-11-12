@@ -239,6 +239,7 @@ const void *of_get_property(const struct device_node *np, const char *name,
 }
 EXPORT_SYMBOL(of_get_property);
 
+#if 0
 /*
  * arch_match_cpu_phys_id - Match the given logical CPU and physical id
  *
@@ -257,6 +258,7 @@ bool __weak arch_match_cpu_phys_id(int cpu, u64 phys_id)
 {
 	return (u32)phys_id == cpu;
 }
+#endif
 
 /**
  * Checks if the given "prop_name" property holds the physical id of the

@@ -171,7 +171,7 @@ static void hexdump(unsigned char *buf, unsigned int len)
 			buf, len, false);
 }
 
-static void tcrypt_complete(struct crypto_async_request *req, int err)
+static void __noreorder tcrypt_complete(struct crypto_async_request *req, int err)
 {
 	struct tcrypt_result *res = req->data;
 

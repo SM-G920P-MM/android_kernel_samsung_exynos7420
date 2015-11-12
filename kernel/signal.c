@@ -3620,10 +3620,12 @@ SYSCALL_DEFINE3(sigsuspend, int, unused1, int, unused2, old_sigset_t, mask)
 }
 #endif
 
+#if 0
 __attribute__((weak)) const char *arch_vma_name(struct vm_area_struct *vma)
 {
 	return NULL;
 }
+#endif
 
 void __init signals_init(void)
 {

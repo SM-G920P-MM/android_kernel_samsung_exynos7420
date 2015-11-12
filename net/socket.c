@@ -275,7 +275,7 @@ static void sock_destroy_inode(struct inode *inode)
 	kmem_cache_free(sock_inode_cachep, ei);
 }
 
-static void init_once(void *foo)
+static void init_once_net(void *foo)
 {
 	struct socket_alloc *ei = (struct socket_alloc *)foo;
 
@@ -290,7 +290,7 @@ static int init_inodecache(void)
 					      (SLAB_HWCACHE_ALIGN |
 					       SLAB_RECLAIM_ACCOUNT |
 					       SLAB_MEM_SPREAD),
-					      init_once);
+					      init_once_net);
 	if (sock_inode_cachep == NULL)
 		return -ENOMEM;
 	return 0;

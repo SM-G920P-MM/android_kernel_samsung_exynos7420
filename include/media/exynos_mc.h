@@ -144,7 +144,7 @@ struct exynos_md {
 	spinlock_t slock;
 };
 
-static int dummy_callback(struct device *dev, void *md)
+static int __noreorder dummy_callback(struct device *dev, void *md)
 {
 	/* non-zero return stops iteration */
 	return -1;

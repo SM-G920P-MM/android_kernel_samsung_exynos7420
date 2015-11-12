@@ -2527,8 +2527,7 @@ s3c24xx_serial_get_options(struct uart_port *port, int *baud,
 
 }
 
-static int __init
-s3c24xx_serial_console_setup(struct console *co, char *options)
+static int s3c24xx_serial_console_setup(struct console *co, char *options)
 {
 	struct uart_port *port;
 	int baud = 9600;

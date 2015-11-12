@@ -75,7 +75,7 @@ static inline void __tcp_v6_send_check(struct sk_buff *skb,
 	}
 }
 
-static inline void tcp_v6_send_check(struct sock *sk, struct sk_buff *skb)
+static inline void __noreorder tcp_v6_send_check(struct sock *sk, struct sk_buff *skb)
 {
 	struct ipv6_pinfo *np = inet6_sk(sk);
 

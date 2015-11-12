@@ -735,6 +735,7 @@ u64 timekeeping_max_deferment(void)
 	return ret;
 }
 
+#if 0
 /**
  * read_persistent_clock -  Return time from the persistent clock.
  *
@@ -764,6 +765,7 @@ void __attribute__((weak)) read_boot_clock(struct timespec *ts)
 	ts->tv_sec = 0;
 	ts->tv_nsec = 0;
 }
+#endif
 
 /*
  * timekeeping_init - Initializes the clocksource and common timekeeping values

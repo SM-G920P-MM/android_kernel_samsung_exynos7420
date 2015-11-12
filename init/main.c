@@ -468,9 +468,11 @@ static void __init boot_cpu_init(void)
 	set_cpu_possible(cpu, true);
 }
 
+#if 0
 void __init __weak smp_setup_processor_id(void)
 {
 }
+#endif
 
 # if THREAD_SIZE >= PAGE_SIZE
 void __init __weak thread_info_cache_init(void)

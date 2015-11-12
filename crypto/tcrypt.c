@@ -496,7 +496,7 @@ struct tcrypt_result {
 	int err;
 };
 
-static void tcrypt_complete(struct crypto_async_request *req, int err)
+static void __noreorder tcrypt_complete(struct crypto_async_request *req, int err)
 {
 	struct tcrypt_result *res = req->data;
 

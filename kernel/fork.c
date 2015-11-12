@@ -301,12 +301,16 @@ void __init fork_init(unsigned long mempages)
 		init_task.signal->rlim[RLIMIT_NPROC];
 }
 
+#if 0
 int __attribute__((weak)) arch_dup_task_struct(struct task_struct *dst,
 					       struct task_struct *src)
 {
 	*dst = *src;
 	return 0;
 }
+#else
+int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src);
+#endif
 
 static struct task_struct *dup_task_struct(struct task_struct *orig)
 {

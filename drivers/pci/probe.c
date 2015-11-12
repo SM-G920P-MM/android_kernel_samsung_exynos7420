@@ -1664,6 +1664,7 @@ int __weak pcibios_root_bridge_prepare(struct pci_host_bridge *bridge)
 	return 0;
 }
 
+#if 0
 void __weak pcibios_add_bus(struct pci_bus *bus)
 {
 }
@@ -1671,6 +1672,10 @@ void __weak pcibios_add_bus(struct pci_bus *bus)
 void __weak pcibios_remove_bus(struct pci_bus *bus)
 {
 }
+#else
+void pcibios_add_bus(struct pci_bus *bus);
+void pcibios_remove_bus(struct pci_bus *bus);
+#endif
 
 struct pci_bus *pci_create_root_bus(struct device *parent, int bus,
 		struct pci_ops *ops, void *sysdata, struct list_head *resources)

@@ -2822,6 +2822,7 @@ static void __pci_set_master(struct pci_dev *dev, bool enable)
 	dev->is_busmaster = enable;
 }
 
+#if 0
 /**
  * pcibios_setup - process "pci=" kernel boot arguments
  * @str: string used to pass in "pci=" kernel boot arguments
@@ -2860,6 +2861,7 @@ void __weak pcibios_set_master(struct pci_dev *dev)
 	dev_printk(KERN_DEBUG, &dev->dev, "setting latency timer to %d\n", lat);
 	pci_write_config_byte(dev, PCI_LATENCY_TIMER, lat);
 }
+#endif
 
 /**
  * pci_set_master - enables bus-mastering for device dev
