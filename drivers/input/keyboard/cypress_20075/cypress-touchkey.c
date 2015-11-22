@@ -26,10 +26,14 @@
 #include <linux/miscdevice.h>
 #include <linux/uaccess.h>
 
-#undef USE_OPEN_CLOSE
+#ifndef USE_OPEN_CLOSE
+#define USE_OPEN_CLOSE
+#undef CONFIG_HAS_EARLYSUSPEND
+#undef CONFIG_PM
+#endif
 
-#ifdef CONFIG_POWERSUSPEND
-#include <linux/powersuspend.h>
+#ifdef CONFIG_HAS_EARLYSUSPEND
+#include <linux/earlysuspend.h>
 #endif
 #include <linux/io.h>
 #include <linux/regulator/consumer.h>
@@ -1045,8 +1049,6 @@ static int touchkey_i2c_update(struct touchkey_i2c *tkey_i2c)
 	return ret;
 }
 
-static bool suspended = false;
-
 static inline int64_t get_time_inms(void) {
 	int64_t tinms;
 	struct timespec cur_time = current_kernel_time();
@@ -1094,23 +1096,21 @@ static irqreturn_t touchkey_interrupt(int irq, void *dev_id)
 #if defined(CONFIG_INPUT_BOOSTER)
 			input_booster_send_event(BOOSTER_DEVICE_TOUCHKEY, (keycode_data[i] % 2));
 #endif
-			if (!suspended) {
-				//mdnie negative effect toggle by gm
-				if (touchkey_keycode[i] == 254) {
-					if (keycode_data[i] % 2) {
-						if (get_time_inms() - mtkey_lasttime < 300) {
-							mtkey_count++;
-							printk(KERN_INFO "repeated mtkey action %d.\n", mtkey_count);
-						} else {
-							mtkey_count = 0;
-						}
+			//mdnie negative effect toggle by gm
+			if (touchkey_keycode[i] == 254) {
+				if (keycode_data[i] % 2) {
+					if (get_time_inms() - mtkey_lasttime < 300) {
+						mtkey_count++;
+						printk(KERN_INFO "repeated mtkey action %d.\n", mtkey_count);
 					} else {
-						if (mtkey_count == 3) {
-							mdnie_toggle_negative();
-							mtkey_count = 0;
-						}
-						mtkey_lasttime = get_time_inms();
+						mtkey_count = 0;
 					}
+				} else {
+					if (mtkey_count == 3) {
+						mdnie_toggle_negative();
+						mtkey_count = 0;
+					}
+					mtkey_lasttime = get_time_inms();
 				}
 			}
 		}
@@ -1330,34 +1330,30 @@ static void touchkey_input_close(struct input_dev *dev)
 #endif
 
 #ifdef CONFIG_PM
-#ifdef CONFIG_POWERSUSPEND
+#ifdef CONFIG_HAS_EARLYSUSPEND
 #define touchkey_suspend	NULL
 #define touchkey_resume	NULL
 
-static int sec_touchkey_early_suspend(struct power_suspend *h)
+static int sec_touchkey_early_suspend(struct early_suspend *h)
 {
 	struct touchkey_i2c *tkey_i2c =
-		container_of(h, struct touchkey_i2c, power_suspend);
+		container_of(h, struct touchkey_i2c, early_suspend);
 
 	touchkey_stop(tkey_i2c);
 
 	tk_debug_dbg(true, &tkey_i2c->client->dev, "%s\n", __func__);
 
-	suspended = true;
-
 	return 0;
 }
 
-static int sec_touchkey_late_resume(struct power_suspend *h)
+static int sec_touchkey_late_resume(struct early_suspend *h)
 {
 	struct touchkey_i2c *tkey_i2c =
-		container_of(h, struct touchkey_i2c, power_suspend);
+		container_of(h, struct touchkey_i2c, early_suspend);
 
 	tk_debug_dbg(true, &tkey_i2c->client->dev, "%s\n", __func__);
 
 	touchkey_start(tkey_i2c);
-
-	suspended = false;
 
 	return 0;
 }
@@ -2589,12 +2585,12 @@ static int i2c_touchkey_probe(struct i2c_client *client,
 	}
 #endif
 
-#ifdef CONFIG_POWERSUSPEND
-	tkey_i2c->power_suspend.suspend =
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	tkey_i2c->early_suspend.suspend =
 		(void *)sec_touchkey_early_suspend;
-	tkey_i2c->power_suspend.resume =
+	tkey_i2c->early_suspend.resume =
 		(void *)sec_touchkey_late_resume;
-	register_power_suspend(&tkey_i2c->power_suspend);
+	register_early_suspend(&tkey_i2c->early_suspend);
 #endif
 
 	/*sysfs*/
