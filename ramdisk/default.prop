@@ -14,6 +14,7 @@ dalvik.vm.image-dex2oat-Xms=64m
 dalvik.vm.image-dex2oat-Xmx=64m
 ro.dalvik.vm.native.bridge=0
 
+# START OVERRIDE (arter97 kernel)
 # SELinux & Knox related
 persist.cne.feature=0
 persist.security.ams.enforcing=0
@@ -29,6 +30,11 @@ ro.config.dha_cached_min=4
 ro.config.dha_empty_min=8
 ro.config.dha_lmk_scale=1
 ro.config.dha_pwhitelist_enable=1
+sys.config.spcm_enable=false
+sys.config.spcm_db_enable=false
+sys.config.spcm_db_launcher=false
+sys.config.spcm_preload_enable=false
+sys.config.spcm_gcm_kill_enable=false
 
 # Note 5
 telephony.lteOnCdmaDevice=0
