@@ -50,8 +50,9 @@ rm -rf *app/UniversalMDMClient*
 rm -rf container/*Knox*
 rm -rf container/*KNOX*
 
-sed -i -e '/ro.securestorage.knox/c\ro.securestorage.knox=false' build.prop
-sed -i -e '/ro.securestorage.support/c\ro.securestorage.support=false' build.prop
+cp /tmp/arter97/default.prop /system/default.prop
+chown 0.0 /system/default.prop
+chmod 644 /system/default.prop
 
 cd /
 ui_print " - tuning file systems"
