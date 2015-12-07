@@ -88,6 +88,7 @@ enum sec_wireless_firm_update_mode {
 	SEC_WIRELESS_RX_BUILT_IN_MODE,
 	SEC_WIRELESS_TX_ON_MODE,
 	SEC_WIRELESS_TX_OFF_MODE,
+	SEC_WIRELESS_RX_INIT,
 };
 
 enum sec_tx_firmware_mode {
@@ -699,6 +700,7 @@ struct sec_battery_platform_data {
 	/* wirelss charger */
 	char *wireless_charger_name;
 	int wireless_cc_cv;
+	int wpc_det;
 
 	int chg_gpio_en;
 	/* 1 : active high, 0 : active low */
