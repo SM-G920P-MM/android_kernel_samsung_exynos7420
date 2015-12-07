@@ -273,6 +273,7 @@ static int sec_bat_set_charge(
 #if defined(CONFIG_WIRELESS_CHARGER_INBATTERY) || defined(CONFIG_WIRELESS_CHARGER_HIGH_VOLTAGE)
 		battery->cc_cv_mode = 0;
 		battery->full_mode = false; // need to check
+		battery->cs100_status = false;
 #endif
 	}
 
@@ -2221,9 +2222,13 @@ static void sec_bat_do_fullcharged(
 		if (battery->cable_type == POWER_SUPPLY_TYPE_WIRELESS ||
 			battery->cable_type == POWER_SUPPLY_TYPE_HV_WIRELESS ||
 			battery->cable_type == POWER_SUPPLY_TYPE_PMA_WIRELESS) {
-			value.intval = POWER_SUPPLY_STATUS_FULL;
-			psy_do_property(battery->pdata->wireless_charger_name, set,
-				POWER_SUPPLY_PROP_STATUS, value);
+			if(battery->capacity >= 100) {
+				battery->cs100_status = false;
+				value.intval = POWER_SUPPLY_STATUS_FULL;
+				psy_do_property(battery->pdata->wireless_charger_name, set,
+					POWER_SUPPLY_PROP_STATUS, value);
+			} else
+				battery->cs100_status = true;
 		}
 #endif
 	} else {
@@ -2235,9 +2240,13 @@ static void sec_bat_do_fullcharged(
 		if (battery->cable_type == POWER_SUPPLY_TYPE_WIRELESS ||
 			battery->cable_type == POWER_SUPPLY_TYPE_HV_WIRELESS ||
 			battery->cable_type == POWER_SUPPLY_TYPE_PMA_WIRELESS) {
-			value.intval = POWER_SUPPLY_STATUS_FULL;
-			psy_do_property(battery->pdata->wireless_charger_name, set,
-				POWER_SUPPLY_PROP_STATUS, value);
+			if(battery->capacity >= 100) {
+				battery->cs100_status = false;
+				value.intval = POWER_SUPPLY_STATUS_FULL;
+				psy_do_property(battery->pdata->wireless_charger_name, set,
+					POWER_SUPPLY_PROP_STATUS, value);
+			} else
+				battery->cs100_status = true;
 		}
 #endif
 #if defined(CONFIG_BATTERY_AGE_FORECAST)
@@ -2445,6 +2454,19 @@ static void sec_bat_get_battery_info(
 		else
 			queue_delayed_work_on(0, battery->monitor_wqueue, &battery->siop_work, 0);
 	}
+
+#if defined(CONFIG_WIRELESS_CHARGER_INBATTERY) || defined(CONFIG_WIRELESS_CHARGER_HIGH_VOLTAGE)
+	if ( battery->wc_status != SEC_WIRELESS_PAD_NONE &&
+			battery->status == POWER_SUPPLY_STATUS_FULL &&
+			battery->capacity >= 100 &&
+			battery->cs100_status == true ) {
+		pr_debug("%s cs100 command was missed bacause of SoC, try here! \n", __func__);
+		battery->cs100_status = false;
+		value.intval = POWER_SUPPLY_STATUS_FULL;
+		psy_do_property(battery->pdata->wireless_charger_name, set,
+			POWER_SUPPLY_PROP_STATUS, value);
+	}
+#endif
 
 	dev_dbg(battery->dev,
 		"%s:Vnow(%dmV),Inow(%dmA),Isysnow(%dmA),Imax(%dmA),SOC(%d%%),Tbat(%d),Tchg(%d),Twpc(%d),is_hc_usb(%d)\n",
@@ -2788,6 +2810,7 @@ static void sec_bat_cc_cv_mode_check(struct sec_battery_info *battery)
 
 	if ( (battery->wc_status != SEC_WIRELESS_PAD_NONE) &&
 		!battery->full_mode &&
+		battery->capacity >= 99 &&
 		battery->siop_level == 100) {
 		battery->full_mode = true;
 
@@ -2907,6 +2930,45 @@ static void sec_bat_fw_update_work(struct sec_battery_info *battery, int mode)
 			break;
 		default:
 			break;
+	}
+}
+
+static void sec_bat_fw_init_work(struct work_struct *work)
+{
+	struct sec_battery_info *battery = container_of(work,
+				struct sec_battery_info, fw_init_work.work);
+
+	union power_supply_propval value;
+	int otg_status;
+	int wpc_det;
+
+	dev_dbg(battery->dev, "%s \n", __func__);
+
+	wpc_det = gpio_get_value(battery->pdata->wpc_det);
+
+	pr_debug("%s wpc_det = %d \n", __func__,wpc_det);
+
+	psy_do_property(battery->pdata->charger_name, get,
+		POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL, value);
+	otg_status = value.intval;
+	pr_debug("%s otg = %d \n", __func__, otg_status);
+
+	if(!otg_status && !wpc_det) {
+		pr_debug("%s otg on \n", __func__);
+		value.intval = true;
+		psy_do_property(battery->pdata->charger_name, set,
+			POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL, value);
+	}
+
+	value.intval = SEC_WIRELESS_RX_INIT;
+	psy_do_property(battery->pdata->wireless_charger_name, set,
+		POWER_SUPPLY_PROP_CHARGE_POWERED_OTG_CONTROL, value);
+
+	if(!otg_status && !wpc_det) {
+		pr_debug("%s otg off \n", __func__);
+		value.intval = false;
+		psy_do_property(battery->pdata->charger_name, set,
+			POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL, value);
 	}
 }
 
@@ -3264,7 +3326,7 @@ static void sec_bat_cable_work(struct work_struct *work)
 
 #if defined(CONFIG_CALC_TIME_TO_FULL)
 		queue_delayed_work_on(0, battery->monitor_wqueue, &battery->timetofull_work,
-					msecs_to_jiffies(5000));
+					msecs_to_jiffies(7000));
 #endif
 #if defined(ANDROID_ALARM_ACTIVATED)
 		/* No need for wakelock in Alarm */
@@ -4572,12 +4634,22 @@ ssize_t sec_bat_store_attrs(
 			union power_supply_propval value;
 			dev_dbg(battery->dev,
 					"%s: HMT_TA_CHARGE(%d)\n", __func__, x);
-			if (x) {
-				psy_do_property(battery->pdata->charger_name, get,
+			psy_do_property(battery->pdata->charger_name, get,
 					POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL, value);
-				if (value.intval) {
+			if (value.intval) {
+				dev_dbg(battery->dev,
+					"%s: ignore HMT_TA_CHARGE(%d)\n", __func__, x);
+			} else {
+				if (x) {
+					value.intval = false;
+					psy_do_property(battery->pdata->charger_name, set,
+							POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL,
+							value);
 					dev_dbg(battery->dev,
-						"%s: ignore HMT_TA_CHARGE(%d)\n", __func__, x);
+						"%s: changed to OTG cable detached\n", __func__);
+					battery->wire_status = POWER_SUPPLY_TYPE_HMT_CHARGE;
+					wake_lock(&battery->cable_wake_lock);
+					queue_delayed_work_on(0, battery->monitor_wqueue, &battery->cable_work, 0);
 				} else {
 					value.intval = false;
 					psy_do_property(battery->pdata->charger_name, set,
@@ -4585,22 +4657,10 @@ ssize_t sec_bat_store_attrs(
 							value);
 					dev_dbg(battery->dev,
 							"%s: changed to OTG cable detached\n", __func__);
-
-					battery->wire_status = POWER_SUPPLY_TYPE_HMT_CHARGE;
+					battery->wire_status = POWER_SUPPLY_TYPE_HMT_CONNECTED;
 					wake_lock(&battery->cable_wake_lock);
 					queue_delayed_work_on(0, battery->monitor_wqueue, &battery->cable_work, 0);
 				}
-			} else {
-				value.intval = false;
-				psy_do_property(battery->pdata->charger_name, set,
-						POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL,
-						value);
-				dev_dbg(battery->dev,
-						"%s: changed to OTG cable detached\n", __func__);
-
-				battery->wire_status = POWER_SUPPLY_TYPE_HMT_CONNECTED;
-				wake_lock(&battery->cable_wake_lock);
-				queue_delayed_work_on(0, battery->monitor_wqueue, &battery->cable_work, 0);
 			}
 			ret = count;
 		}
@@ -5837,6 +5897,7 @@ static int vbus_handle_notification(struct notifier_block *nb,
 		battery->muic_vbus_status != vbus_status &&
 		battery->muic_vbus_status == STATUS_VBUS_HIGH &&
 		vbus_status == STATUS_VBUS_LOW) {
+		sec_bat_set_charge(battery, false);
 		msleep(500);
 		value.intval = true;
 		psy_do_property(battery->pdata->charger_name, set,
@@ -5867,7 +5928,7 @@ static int sec_bat_parse_dt(struct device *dev,
 	unsigned int i;
 	const u32 *p;
 	u32 temp;
-#ifdef CONFIG_SEC_FACTORY
+#if defined(CONFIG_SEC_FACTORY) || defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
 	enum of_gpio_flags irq_gpio_flags;
 #endif
 	if (!np) {
@@ -6598,6 +6659,15 @@ static int sec_bat_parse_dt(struct device *dev,
 	}
 #endif
 
+#if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
+		/* wpc_det */
+		ret = pdata->wpc_det = of_get_named_gpio_flags(np, "battery,wpc_det",
+				0, &irq_gpio_flags);
+		if (ret < 0) {
+			pr_debug("%s : can't get wpc_det\r\n", __func__);
+		}
+#endif
+
 	ret = of_property_read_u32(np, "battery,chg_float_voltage",
 		(unsigned int *)&pdata->chg_float_voltage);
 	if (ret)
@@ -6796,6 +6866,7 @@ static int __devinit sec_battery_probe(struct platform_device *pdev)
 #if defined(CONFIG_WIRELESS_CHARGER_INBATTERY) || defined(CONFIG_WIRELESS_CHARGER_HIGH_VOLTAGE)
 	battery->cc_cv_mode = 0;
 	battery->full_mode = false;
+	battery->cs100_status = false;
 #endif
 
 	battery->skip_chg_temp_check = false;
@@ -6903,6 +6974,10 @@ static int __devinit sec_battery_probe(struct platform_device *pdev)
 #endif
 	INIT_DELAYED_WORK(&battery->siop_work, sec_bat_siop_work);
 
+#if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
+	INIT_DELAYED_WORK(&battery->fw_init_work, sec_bat_fw_init_work);
+#endif
+
 	switch (pdata->polling_type) {
 	case SEC_BATTERY_MONITOR_WORKQUEUE:
 		INIT_DELAYED_WORK(&battery->polling_work,
@@ -6993,6 +7068,10 @@ static int __devinit sec_battery_probe(struct platform_device *pdev)
 			"%s : Failed to create_attrs\n", __func__);
 		goto err_req_irq;
 	}
+
+#if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
+	queue_delayed_work_on(0, battery->monitor_wqueue, &battery->fw_init_work, 0);
+#endif
 
 #if defined(CONFIG_WIRELESS_CHARGER_HIGH_VOLTAGE)
 	value.intval = 0;
