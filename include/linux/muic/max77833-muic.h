@@ -186,6 +186,9 @@ struct max77833_muic_data {
 	int				irq_acokb;
 	int				gpio_acokb;
 	bool				wakeup;
+
+	struct delayed_work		init_work;
+
 	/* muic status value */
 	u8				status1;
 	u8				status2;
