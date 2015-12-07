@@ -27,6 +27,7 @@
 #include <linux/err.h>
 #include <linux/platform_device.h>
 #include <linux/of_gpio.h>
+#include <linux/workqueue.h>
 #include <linux/battery/sec_charging_common.h>
 #if (defined(CONFIG_SWITCH_ANTENNA_IF) || defined(CONFIG_SWITCH_ANTENNA_EARJACK_IF)) && !defined(CONFIG_SEC_FACTORY)
 #include <linux/antenna_switch.h>
@@ -945,13 +946,15 @@ static void muic_cmd_run(struct max77833_muic_data *muic_data)
 					break;
 				case 0x03:
 					if (pass_rev < MUIC_PASS4) // For PASS3
-						max77833_muic_hv_chgin_read(muic_data);
+						/* For QC enable */
+						max77833_muic_hv_fchv_disable(muic_data);
 					else
 						max77833_muic_hv_fchv_capa_read(muic_data);
 					break;
 				case 0x04:
 					if (pass_rev >= MUIC_PASS4)
-						max77833_muic_hv_chgin_read(muic_data);
+						/* For QC enable */
+						max77833_muic_hv_fchv_disable(muic_data);
 					break;
 				default:
 					break;
@@ -961,9 +964,9 @@ static void muic_cmd_run(struct max77833_muic_data *muic_data)
 				max77833_read_reg(i2c, MAX77833_MUIC_REG_DAT_OUT2, &reg_data[0]);
 				chgin = (int)(reg_data[0] * 794 / 10000);        // Calculate CHGIN Volt.
 
-				pr_info("%s:%s Read CHGIN val: %d mV\n", MUIC_DEV_NAME, __func__, (int)(reg_data[0] * 794 / 10));
+				pr_info("%s:%s Read AFC CHGIN val: %d mV\n", MUIC_DEV_NAME, __func__, (int)(reg_data[0] * 794 / 10));
 				if (read_data == HV_CMD_PASS) {
-					if ((chgin >= 8) && (chgin <= 9)) {
+					if ((chgin >= 7) && (chgin <= 9)) {
 						pr_info("%s:%s AFC Charger ATTACHED.\n",MUIC_DEV_NAME,__func__);
 						max77833_muic_set_afc_ready(muic_data, false);
 						val = muic_lookup_vps_table(ATTACHED_DEV_AFC_CHARGER_9V_MUIC, muic_data);
@@ -991,6 +994,7 @@ static void muic_cmd_run(struct max77833_muic_data *muic_data)
 						if (reg_data[0] < reg_data[val])
 							reg_data[0] = reg_data[val];
 					}
+					pr_info("%s:%s: CAPA Value[0x%02x]\n", MUIC_DEV_NAME, __func__, reg_data[0]);
 					max77833_muic_hv_fchv_set(muic_data, reg_data[0], 0xff);
 				}
 				else
@@ -1012,8 +1016,9 @@ static void muic_cmd_run(struct max77833_muic_data *muic_data)
 				max77833_read_reg(i2c, MAX77833_MUIC_REG_DAT_OUT2, &reg_data[0]);
 				chgin = (int)(reg_data[0] * 794 / 10000);	// Calculate CHGIN Volt.
 
+				pr_info("%s:%s Read QC CHGIN val: %d mV\n", MUIC_DEV_NAME, __func__, (int)(reg_data[0] * 794 / 10));
 				if (read_data == HV_CMD_PASS) {
-					if ((chgin >= 8) && (chgin <= 9)) {
+					if ((chgin >= 7) && (chgin <= 9)) {
 						pr_info("%s:%s QC Charger ATTACHED.\n",MUIC_DEV_NAME,__func__);
 						max77833_muic_set_afc_ready(muic_data, false);
 						val = muic_lookup_vps_table(ATTACHED_DEV_QC_CHARGER_9V_MUIC, muic_data);
@@ -2353,7 +2358,16 @@ static int max77833_muic_handle_attach(struct max77833_muic_data *muic_data,
 		max77833_muic_write_switch(muic_data, COM_OPEN, 0xff);
 		break;
 	case ATTACHED_DEV_TIMEOUT_OPEN_MUIC:	// For chgtyp 0x04
-		ret = write_vps_regs(muic_data, new_dev);
+		muic_acokb = !gpio_get_value(muic_data->gpio_acokb);
+		pr_info("%s:%s muic_acokb[%d]\n", MUIC_DEV_NAME, __func__, muic_acokb);
+		if (muic_acokb) {
+			pr_info("%s:%s: Cable+Chgtyp 0x04\n", MUIC_DEV_NAME, __func__);
+			ret = write_vps_regs(muic_data, new_dev);
+		}
+		else {
+			pr_info("%s:%s: Only Chgtyp 0x04\n", MUIC_DEV_NAME, __func__);
+			goto out_without_noti;
+		}
 		break;
 	case ATTACHED_DEV_WIRELESS_PAD_MUIC:
 		pr_info("%s:%s Wireless PAD ATTACHED\n", MUIC_DEV_NAME, __func__);
@@ -2397,8 +2411,6 @@ static int max77833_muic_handle_attach(struct max77833_muic_data *muic_data,
 	/* chgdet Re-run for timeout or D+/D- open */
 	if ((muic_data->attached_dev == ATTACHED_DEV_NONE_MUIC) &&
 				(new_dev == ATTACHED_DEV_TIMEOUT_OPEN_MUIC)) {
-		muic_acokb = !gpio_get_value(muic_data->gpio_acokb);
-		pr_info("%s:%s muic_acokb[%d]\n", MUIC_DEV_NAME, __func__, muic_acokb);
 		if (muic_acokb)
 			max77833_muic_read_chgdet(muic_data);
 	}
@@ -2717,6 +2729,22 @@ static void max77833_muic_detect_dev(struct max77833_muic_data *muic_data, int i
 	if (muic_data->attached_dev == ATTACHED_DEV_DESKDOCK_VB_MUIC) {
 		if (adc == (MAX77833_ADC_DESKDOCK - 1)) {
 			pr_warn("%s:%s abandon JIG_USB_ON\n", MUIC_DEV_NAME, __func__);
+			return;
+		}
+	}
+
+	/* Workaround for HMT disconnect issue in User binary. */
+	if (muic_data->attached_dev == ATTACHED_DEV_HMT_MUIC) {
+		if (adc == (MAX77833_ADC_HMT - 1)) {
+			pr_warn("%s:%s abandon SMARTDOCK\n", MUIC_DEV_NAME, __func__);
+			return;
+		}
+	}
+
+	/* Workaround for OTG disconnect issue in User binary. */
+	if (muic_data->attached_dev == ATTACHED_DEV_OTG_MUIC) {
+		if (adc != MAX77833_ADC_OPEN) {
+			pr_warn("%s:%s abandon DEVICE(OTG)\n", MUIC_DEV_NAME, __func__);
 			return;
 		}
 	}
@@ -3044,6 +3072,30 @@ do {									\
 	}								\
 } while (0)
 
+static void max77833_muic_init_second_detect(struct work_struct *work)
+{
+	struct max77833_muic_data *muic_data =
+		container_of(work, struct max77833_muic_data, init_work.work);
+	bool empty_q;
+	int ret;
+
+	pr_info("%s:%s\n", MUIC_DEV_NAME, __func__);
+
+	mutex_lock(&muic_data->muic_mutex);
+	empty_q = is_empty_muic_cmd_queue(&(muic_data->muic_cmd_queue));
+	if (muic_data->attached_dev == ATTACHED_DEV_TIMEOUT_OPEN_MUIC) {
+		// Detach prev cable & Charger detect re-run.
+		ret = max77833_muic_handle_detach(muic_data);
+		if (ret)
+			pr_err("%s:%s cannot handle detach(%d)\n", MUIC_DEV_NAME, __func__, ret);
+
+		max77833_muic_read_chgdet(muic_data);
+		if (empty_q)
+			max77833_muic_handle_cmd(muic_data, -1);
+	}
+	mutex_unlock(&muic_data->muic_mutex);
+}
+
 static void max77833_muic_init_detect(struct max77833_muic_data *muic_data)
 {
 	pr_info("%s:%s\n", MUIC_DEV_NAME, __func__);
@@ -3298,6 +3350,8 @@ static int max77833_muic_probe(struct platform_device *pdev)
 
 	/* initial cable detection */
 	max77833_muic_init_detect(muic_data);
+	INIT_DELAYED_WORK(&muic_data->init_work, max77833_muic_init_second_detect);
+	schedule_delayed_work(&muic_data->init_work, msecs_to_jiffies(4000));
 
 	return 0;
 
