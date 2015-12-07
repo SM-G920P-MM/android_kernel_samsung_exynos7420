@@ -405,7 +405,7 @@ static void max77833_check_wpc(struct max77833_charger_data *charger)
 		}
 
 		cnt_iin ++;
-		if(cnt_iin >= 3) {
+		if(cnt_iin >= 4) {
 			cnt_iin = 0;
 			value.intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
 			psy_do_property(charger->pdata->wireless_charger_name, set,
@@ -1074,6 +1074,7 @@ static void max77833_charger_function_control(
 		if (charger->cable_type == POWER_SUPPLY_TYPE_MAINS) {
 			charger->afc_detect = true;
 			charger->charging_current_max = INPUT_CURRENT_TA;
+			cancel_delayed_work(&charger->afc_work);
 			queue_delayed_work(charger->wqueue, &charger->afc_work, msecs_to_jiffies(2000));
 			wake_lock_timeout(&charger->afc_wake_lock, HZ * 3);
 		}
@@ -1094,6 +1095,7 @@ static void max77833_charger_function_control(
 			charger->cable_type == POWER_SUPPLY_TYPE_PMA_WIRELESS) {
 			charger->wc_afc_detect = true;
 			charger->charging_current_max = INPUT_CURRENT_WPC;
+			cancel_delayed_work(&charger->wc_afc_work);
 			queue_delayed_work(charger->wqueue, &charger->wc_afc_work, msecs_to_jiffies(4000));
 			wake_lock_timeout(&charger->afc_wake_lock, HZ * 7);
 		}
@@ -1107,6 +1109,7 @@ static void max77833_charger_function_control(
 			(charger->cable_type != POWER_SUPPLY_TYPE_HV_WIRELESS_ETX) &&
 			(charger->cable_type != POWER_SUPPLY_TYPE_PMA_WIRELESS)) {
 			charger->iin_current_detecting = true;
+			cancel_delayed_work(&charger->check_slow_work);
 			wake_lock(&charger->check_slow_wake_lock);
 			queue_delayed_work(charger->wqueue, &charger->check_slow_work,
 					msecs_to_jiffies(4000));
@@ -1368,7 +1371,13 @@ static int max77833_chg_get_property(struct power_supply *psy,
 		return -ENODATA;
 #endif
 	case POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL:
-		return -ENODATA;
+		max77833_read_reg(charger->i2c, MAX77833_CHG_REG_CNFG_00,
+			&reg_data);
+		if ((reg_data & CHG_CNFG_00_OTG_CTRL) == CHG_CNFG_00_OTG_CTRL)
+			val->intval = 1;
+		else
+			val->intval = 0;
+		break;
 	case POWER_SUPPLY_PROP_USB_HC:
 		return -ENODATA;
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
@@ -1635,6 +1644,22 @@ static int max77833_otg_get_property(struct power_supply *psy,
 				enum power_supply_property psp,
 				union power_supply_propval *val)
 {
+	struct max77833_charger_data *charger =
+		container_of(psy, struct max77833_charger_data, psy_otg);
+	u8 reg_data;
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+		max77833_read_reg(charger->i2c, MAX77833_CHG_REG_CNFG_00,
+			&reg_data);
+		if ((reg_data & CHG_CNFG_00_OTG_CTRL) == CHG_CNFG_00_OTG_CTRL)
+			val->intval = 1;
+		else
+			val->intval = 0;
+		break;
+	default:
+		return -EINVAL;
+	}
 	return 0;
 }
 
@@ -2772,6 +2797,10 @@ static void max77833_charger_shutdown(struct device *dev)
 		pr_err("%s: no max77833 i2c client\n", __func__);
 		return;
 	}
+
+	cancel_delayed_work(&charger->afc_work);
+	cancel_delayed_work(&charger->wc_afc_work);
+	cancel_delayed_work(&charger->check_slow_work);
 
 	if (charger->pdata->ovp_enb)
 		gpio_direction_output(charger->pdata->ovp_enb, 0);
