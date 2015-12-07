@@ -64,9 +64,11 @@ static enum power_supply_property sec_charger_props[] = {
 };
 
 int p9220_otp_update = 0;
+u8 adc_cal = 0;
 
 extern int charger_muic_disable(int val);
 extern unsigned int lpcharge;
+int p9220_get_firmware_version(struct p9220_charger_data *charger, int firm_mode);
 
 static int p9220_reg_read(struct i2c_client *client, u16 reg, u8 *val)
 {
@@ -622,36 +624,33 @@ void p9220_fan_control(struct p9220_charger_data *charger, bool on)
 
 void p9220_set_vrect_adjust(struct p9220_charger_data *charger, int set)
 {
+	int i = 0;
 	pr_info("%s %d\n", __func__, set);
 
 	switch (set) {
 		case P9220_HEADROOM_0:
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x0);
-			msleep(10);
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x0);
-			msleep(10);
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x0);
+			for(i=0; i<6; i++) {
+				p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x0);
+				msleep(50);
+			}
 			break;
 		case P9220_HEADROOM_1:
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x36);
-			msleep(10);
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x36);
-			msleep(10);
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x36);
+			for(i=0; i<6; i++) {
+				p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x36);
+				msleep(50);
+			}
 			break;
 		case P9220_HEADROOM_2:
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x61);
-			msleep(10);
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x61);
-			msleep(10);
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x61);
+			for(i=0; i<6; i++) {
+				p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x61);
+				msleep(50);
+			}
 			break;
 		case P9220_HEADROOM_3:
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x7f);
-			msleep(10);
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x7f);
-			msleep(10);
-			p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x7f);
+			for(i=0; i<6; i++) {
+				p9220_reg_write(charger->client, P9220_VRECT_SET_REG, 0x7f);
+				msleep(50);
+			}
 			break;
 		default:
 			pr_info("%s no headroom mode\n", __func__);
@@ -1117,6 +1116,61 @@ static int PgmOTPwRAM(struct p9220_charger_data *charger, unsigned short OtpAddr
 	return true;
 }
 
+static int p9220_runtime_sram_change(struct p9220_charger_data *charger)
+{
+	int i, ret;
+	u8 reg;
+
+	pr_info("%s \n", __func__);
+
+	do {
+		ret = p9220_reg_write(charger->client, 0x5834, adc_cal);
+		ret = p9220_reg_read(charger->client, 0x5834, &reg);
+		pr_info("%s [%d] otp : 0x%x, sram : 0x%x \n", __func__, i, adc_cal, reg);
+		if(i > 10 || ret < 0)
+			return false;
+		msleep(10);
+		i++;
+	} while(reg != adc_cal);
+
+	return true;
+}
+
+int p9220_runtime_sram_preprocess(struct p9220_charger_data *charger)
+{
+	u8 reg;
+	u8 pad_mode;
+
+	pr_info("%s \n", __func__);
+
+	if(gpio_get_value(charger->pdata->wpc_det)) {
+		pr_info("%s it is wilreless lpm \n", __func__);
+		p9220_reg_read(charger->client, P9220_SYS_OP_MODE_REG, &pad_mode);
+		pr_info("%s pad_mode = %d \n", __func__, pad_mode);
+
+		if(pad_mode == P9220_SYS_MODE_PMA)
+			return true;
+	}
+
+	if (p9220_reg_write(charger->client, 0x3000, 0x5a) < 0) {
+		pr_err("%s: failed unlock register\n", __func__);
+	}
+
+	if (p9220_reg_write(charger->client, 0x3040, 0x11) < 0) {
+		pr_err("%s: failed stop process\n", __func__);
+	}
+
+	//write 1 at bit0 of 0xbfbe
+	if(p9220_reg_read(charger->client, 0xbfbe, &reg) < 0)
+		adc_cal = 0;
+	else {
+		adc_cal = reg = reg | 0x01;
+		pr_info("%s 0xbfbe = 0x%x \n", __func__, reg);
+	}
+
+	return true;
+}
+
 int p9220_firmware_update(struct p9220_charger_data *charger, int cmd)
 {
 	struct file *fp;
@@ -1243,6 +1297,9 @@ int p9220_firmware_update(struct p9220_charger_data *charger, int cmd)
 		charger->pdata->cable_type = P9220_PAD_MODE_NONE;
 		dev_err(&charger->client->dev, "%s, built in sram mode off \n", __func__);
 		charger->pdata->tx_status = SEC_TX_OFF;
+		break;
+	case SEC_WIRELESS_RX_INIT:
+		p9220_runtime_sram_preprocess(charger); /* get 0xBFBE value */
 		break;
 	default:
 		return -1;
@@ -1400,14 +1457,14 @@ static int p9220_chg_set_property(struct power_supply *psy,
 			break;
 		case POWER_SUPPLY_PROP_CHARGE_TYPE:
 			if(gpio_get_value(charger->pdata->wpc_det)) {
+				msleep(250);
 				pr_info("%s: Charger interrupt occured during lpm \n", __func__);
 				queue_delayed_work(charger->wqueue, &charger->wpc_det_work, 0);
 
-				p9220_send_command(charger, P9220_REQUEST_AFC_TX);
-				msleep(250);
+				/* this code is for restart on wirless pad */
 				p9220_send_command(charger, P9220_REQUEST_AFC_TX);
 			}
-			queue_delayed_work(charger->wqueue, &charger->wpc_lpm_work, 0);
+			queue_delayed_work(charger->wqueue, &charger->wpc_lpm_work, msecs_to_jiffies(2000));
 			break;
 		case POWER_SUPPLY_PROP_HEALTH:
 			if(val->intval == POWER_SUPPLY_HEALTH_OVERHEAT ||
@@ -1601,6 +1658,10 @@ static void p9220_wpc_det_work(struct work_struct *work)
 	if ((charger->wc_w_state == 0) && (wc_w_state == 1)) {
 		charger->pdata->vout_status = P9220_VOUT_5V;
 
+		/* read firmware version */
+		if(p9220_get_firmware_version(charger, P9220_RX_FIRMWARE) == P9220_OTP_FIRM_VERSION && adc_cal > 0)
+			p9220_runtime_sram_change(charger);/* change sram */
+
 		/* set fod value */
 		if(charger->pdata->fod_data_check)
 			p9220_fod_set(charger);
@@ -1623,8 +1684,6 @@ static void p9220_wpc_det_work(struct work_struct *work)
 		/* read vrect adjust */
 		p9220_reg_read(charger->client, P9220_VRECT_SET_REG, &vrect);
 
-		/* read firmware version */
-		p9220_get_firmware_version(charger, P9220_RX_FIRMWARE);
 		pr_info("%s: wpc activated, set V_INT as PN\n",__func__);
 
 		/* read pad mode */
@@ -1670,7 +1729,11 @@ static void p9220_wpc_det_work(struct work_struct *work)
 		value.intval = 0;
 		psy_do_property("max77833-charger", set, POWER_SUPPLY_PROP_CHARGE_COUNTER_SHADOW, value);
 		cancel_delayed_work(&charger->wpc_isr_work);
-		cancel_delayed_work(&charger->wpc_opfq_work);
+
+		if(delayed_work_pending(&charger->wpc_opfq_work)) {
+			wake_unlock(&charger->wpc_opfq_lock);
+			cancel_delayed_work(&charger->wpc_opfq_work);
+		}
 	}
 
 	pr_info("%s: w(%d to %d)\n", __func__,

@@ -179,6 +179,7 @@ struct sec_battery_info {
 	struct wake_lock siop_wake_lock;
 #if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
 	struct delayed_work update_work;
+	struct delayed_work fw_init_work;
 #endif
 
 	unsigned int full_check_cnt;
