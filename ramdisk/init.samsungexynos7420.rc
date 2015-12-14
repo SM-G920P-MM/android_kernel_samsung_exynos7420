@@ -191,6 +191,12 @@ on post-fs-data
     chmod 0775 /efs/bluetooth
 
 on boot
+    # update foreground cpuset now that processors are up
+    write /dev/cpuset/foreground/cpus 0-7
+    write /dev/cpuset/foreground/boost/cpus 4-7
+    write /dev/cpuset/background/cpus 0
+    write /dev/cpuset/system-background/cpus 0-3
+
     # Memory managements
     write /proc/sys/vm/min_free_kbytes 32768
     write /proc/sys/vm/min_free_order_shift 1
