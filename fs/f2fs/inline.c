@@ -16,9 +16,6 @@
 
 bool f2fs_may_inline_data(struct inode *inode)
 {
-	if (!test_opt(F2FS_I_SB(inode), INLINE_DATA))
-		return false;
-
 	if (f2fs_is_atomic_file(inode))
 		return false;
 
@@ -177,6 +174,9 @@ int f2fs_convert_inline_inode(struct inode *inode)
 	struct page *ipage, *page;
 	int err = 0;
 
+	if (!f2fs_has_inline_data(inode))
+		return 0;
+
 	page = grab_cache_page(inode->i_mapping, 0);
 	if (!page)
 		return -ENOMEM;
@@ -199,6 +199,9 @@ out:
 	f2fs_unlock_op(sbi);
 
 	f2fs_put_page(page, 1);
+
+	f2fs_balance_fs(sbi, dn.node_changed);
+
 	return err;
 }
 
@@ -289,8 +292,7 @@ process_inline:
 }
 
 struct f2fs_dir_entry *find_in_inline_dir(struct inode *dir,
-			struct f2fs_filename *fname, struct page **res_page,
-			unsigned int flags)
+			struct f2fs_filename *fname, struct page **res_page)
 {
 	struct f2fs_sb_info *sbi = F2FS_SB(dir->i_sb);
 	struct f2fs_inline_dentry *inline_dentry;
@@ -309,7 +311,7 @@ struct f2fs_dir_entry *find_in_inline_dir(struct inode *dir,
 	inline_dentry = inline_data_addr(ipage);
 
 	make_dentry_ptr(NULL, &d, (void *)inline_dentry, 2);
-	de = find_target_dentry(fname, namehash, NULL, &d, flags);
+	de = find_target_dentry(fname, namehash, NULL, &d);
 	unlock_page(ipage);
 	if (de)
 		*res_page = ipage;
