@@ -15,7 +15,7 @@ if [ -e boot.img ] ; then
 	rm arter97-kernel-"$(git rev-parse --abbrev-ref HEAD)"-"$(cat ../version)"-tmp.zip
 	cd ..
 	ls -al arter97-kernel-"$(git rev-parse --abbrev-ref HEAD)"-"$(cat version)".zip
-	rm kernelzip/boot.img
+	rm kernelzip/boot.img kernelzip/default.prop
 fi
 
 if [ -e recovery.img ] ; then
