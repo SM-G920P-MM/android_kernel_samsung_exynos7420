@@ -1802,13 +1802,13 @@ static int tcp_v6_rcv(struct sk_buff *skb)
 	TCP_SKB_CB(skb)->sacked = 0;
 
 	sk = __inet6_lookup_skb(&tcp_hashinfo, skb, th->source, th->dest);
-#ifdef CONFIG_MPTCP
+#ifndef CONFIG_MPTCP
 	if (!sk)
 		goto no_tcp_socket;
 #endif
 
 process:
-	if (sk->sk_state == TCP_TIME_WAIT)
+	if (sk && sk->sk_state == TCP_TIME_WAIT)
 		goto do_time_wait;
 #ifdef CONFIG_MPTCP
 	if (!sk && th->syn && !th->ack) {
@@ -1828,9 +1828,7 @@ process:
 			sock_put(sk);
 		return 0;
 	}
-#endif
 
-#ifdef CONFIG_MPTCP
 	if (!sk)
 		goto no_tcp_socket;
 #endif
