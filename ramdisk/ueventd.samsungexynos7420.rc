@@ -75,9 +75,6 @@
 /dev/video160             0660   media      media
 /dev/media2               0660   media      media
 
-# Secure MEM driver
-/dev/s5p-smem             0660   system     system
-
 # MIF
 /dev/block/platform/15570000.ufs/by-name/RADIO     0660   system     radio
 /dev/block/platform/15570000.ufs/by-name/DNT     0660   system     system
@@ -123,3 +120,9 @@
 
 # FM Radio
 /dev/radio0               0660   system     audio
+
+# Blowfish
+/dev/tzdev                0660   system     system
+/dev/ionfd2phys           0660   system     radio
+/dev/tuihw                0660   system     system
+/dev/tzirs                0660   system     system
