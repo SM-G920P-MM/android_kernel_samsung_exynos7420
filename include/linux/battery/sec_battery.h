@@ -179,6 +179,7 @@ struct sec_battery_info {
 	struct wake_lock siop_wake_lock;
 #if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
 	struct delayed_work update_work;
+	struct delayed_work fw_init_work;
 #endif
 
 	unsigned int full_check_cnt;
@@ -235,6 +236,7 @@ struct sec_battery_info {
 #if defined(CONFIG_WIRELESS_CHARGER_INBATTERY) || defined(CONFIG_WIRELESS_CHARGER_HIGH_VOLTAGE)
 	int cc_cv_mode;
 	bool full_mode;
+	bool cs100_status;
 #endif
 #if defined(CONFIG_CALC_TIME_TO_FULL)
 	int timetofull;
