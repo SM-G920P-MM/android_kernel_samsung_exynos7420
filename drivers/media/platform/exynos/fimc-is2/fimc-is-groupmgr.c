@@ -82,6 +82,18 @@ p_err:
 	return ret;
 }
 
+static void fimc_is_gframe_s_info(struct fimc_is_group_frame *gframe,
+	u32 slot, struct fimc_is_frame *frame)
+{
+	BUG_ON(!gframe);
+	BUG_ON(!frame);
+	BUG_ON(!frame->shot_ext);
+	BUG_ON(slot >= GROUP_SLOT_MAX);
+
+	memcpy(&gframe->group_cfg[slot], &frame->shot_ext->node_group,
+		sizeof(struct camera2_node_group));
+}
+
 static void fimc_is_gframe_free_head(struct fimc_is_group_framemgr *gframemgr,
 	struct fimc_is_group_frame **gframe)
 {
@@ -152,22 +164,9 @@ static void fimc_is_gframe_print_group(struct fimc_is_group *group)
 	}
 }
 
-static void fimc_is_gframe_s_info(struct fimc_is_group_frame *gframe,
-	u32 slot, struct fimc_is_frame *frame)
-{
-	BUG_ON(!gframe);
-	BUG_ON(!frame);
-	BUG_ON(!frame->shot_ext);
-	BUG_ON(slot >= GROUP_SLOT_MAX);
-
-	memcpy(&gframe->group_cfg[slot], &frame->shot_ext->node_group,
-		sizeof(struct camera2_node_group));
-}
-
-static int fimc_is_gframe_check(struct fimc_is_group_frame *gframe,
-	struct fimc_is_group *gprev,
+static int fimc_is_gframe_check(struct fimc_is_group *gprev,
 	struct fimc_is_group *group,
-	struct fimc_is_frame *frame)
+	struct fimc_is_group_frame *gframe)
 {
 	int ret = 0;
 	u32 capture_id;
@@ -194,8 +193,6 @@ static int fimc_is_gframe_check(struct fimc_is_group_frame *gframe,
 			incrop->w, incrop->h, subdev->input.width, subdev->input.height);
 		incrop->w = subdev->input.width;
 		incrop->h = subdev->input.height;
-		frame->shot_ext->node_group.leader.input.cropRegion[2] = incrop->w;
-		frame->shot_ext->node_group.leader.input.cropRegion[3] = incrop->h;
 	}
 
 	for (capture_id = 0; capture_id < CAPTURE_NODE_MAX; ++capture_id) {
@@ -218,8 +215,6 @@ static int fimc_is_gframe_check(struct fimc_is_group_frame *gframe,
 				otcrop->w, otcrop->h, subdev->output.width, subdev->output.height);
 			otcrop->w = subdev->output.width;
 			otcrop->h = subdev->output.height;
-			frame->shot_ext->node_group.capture[capture_id].output.cropRegion[2] = otcrop->w;
-			frame->shot_ext->node_group.capture[capture_id].output.cropRegion[3] = otcrop->h;
 		}
 
 		subdev->cid = capture_id;
@@ -254,10 +249,6 @@ static int fimc_is_gframe_check(struct fimc_is_group_frame *gframe,
 			gprev->id, otcrop->x, otcrop->y, otcrop->w, otcrop->h,
 			group->id, incrop->x, incrop->y, incrop->w, incrop->h);
 		*incrop = *otcrop;
-		frame->shot_ext->node_group.leader.input.cropRegion[0] = incrop->x;
-		frame->shot_ext->node_group.leader.input.cropRegion[1] = incrop->y;
-		frame->shot_ext->node_group.leader.input.cropRegion[2] = incrop->w;
-		frame->shot_ext->node_group.leader.input.cropRegion[3] = incrop->h;
 	}
 
 p_err:
@@ -1977,7 +1968,7 @@ static int fimc_is_group_check_pre(struct fimc_is_groupmgr *groupmgr,
 		}
 
 		fimc_is_gframe_s_info(gframe, group->slot, frame);
-		fimc_is_gframe_check(gframe, gprev, group, frame);
+		fimc_is_gframe_check(gprev, group, gframe);
 	} else if (!gprev && gnext) {
 		/* leader */
 		group->fcount++;
@@ -2012,7 +2003,7 @@ static int fimc_is_group_check_pre(struct fimc_is_groupmgr *groupmgr,
 
 		gframe->fcount = frame->fcount;
 		fimc_is_gframe_s_info(gframe, group->slot, frame);
-		fimc_is_gframe_check(gframe, gprev, group, frame);
+		fimc_is_gframe_check(gprev, group, gframe);
 	} else if (gprev && gnext) {
 		/* middler */
 		fimc_is_gframe_group_head(group, &gframe);
@@ -2038,7 +2029,7 @@ static int fimc_is_group_check_pre(struct fimc_is_groupmgr *groupmgr,
 		}
 
 		fimc_is_gframe_s_info(gframe, group->slot, frame);
-		fimc_is_gframe_check(gframe, gprev, group, frame);
+		fimc_is_gframe_check(gprev, group, gframe);
 	} else {
 		/* single */
 		group->fcount++;
@@ -2071,7 +2062,7 @@ static int fimc_is_group_check_pre(struct fimc_is_groupmgr *groupmgr,
 		}
 
 		fimc_is_gframe_s_info(gframe, group->slot, frame);
-		fimc_is_gframe_check(gframe, gprev, group, frame);
+		fimc_is_gframe_check(gprev, group, gframe);
 	}
 
 	*result = gframe;
