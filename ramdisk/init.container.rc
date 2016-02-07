@@ -50,6 +50,15 @@ on post-fs-data
     mkdir /data/knox/app 0771 system system
     mkdir /data/knox/tmp 0771 system system
     mkdir /data/knox/tmp_sdcard 0700 system system
+    mkdir /data/knox/tmp_sdcard/default 0700 root root
+    mkdir /data/knox/tmp_sdcard/read 0700 root root
+    mkdir /data/knox/tmp_sdcard/write 0700 root root
+    mkdir /data/knox/tmp_sdcard/default/knox-emulated 0700 root root
+    mkdir /data/knox/tmp_sdcard/read/knox-emulated 0700 root root
+    mkdir /data/knox/tmp_sdcard/write/knox-emulated 0700 root root
+    mkdir /data/knox/tmp_sdcard/default/emulated 0700 root root
+    mkdir /data/knox/tmp_sdcard/read/emulated 0700 root root
+    mkdir /data/knox/tmp_sdcard/write/emulated 0700 root root
 
     export KNOX_STORAGE /data/knox/ext_sdcard
 

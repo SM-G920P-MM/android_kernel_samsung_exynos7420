@@ -87,6 +87,7 @@ qc.sdk.us.                 u:object_r:usf_prop:s0
 radio.atfwd.               u:object_r:radio_prop:s0
 ctl.qmuxd                  u:object_r:ctl_qmuxd_prop:s0
 ctl.netmgrd                u:object_r:ctl_netmgrd_prop:s0
+ctl.port-bridge            u:object_r:ctl_port-bridge_prop:s0
 ctl.perfd                  u:object_r:perfd_prop:s0
 ctl.iop                    u:object_r:perfd_prop:s0
 ctl.ipacm                  u:object_r:ipacm_prop:s0
@@ -96,6 +97,7 @@ ctl.sensors                u:object_r:sensors_prop:s0
 ctl.msm_irqbalance         u:object_r:msm_irqbalance_prop:s0
 camera.                    u:object_r:camera_prop:s0
 sf.lcd_density             u:object_r:sf_lcd_density_prop:s0
+opengles.version           u:object_r:opengles_prop:s0
 qualcomm.bt.hci_transport  u:object_r:bluetooth_prop:s0
 ctl.mdm_helper             u:object_r:mdm_helper_prop:s0
 ctl.mpdecision             u:object_r:mpdecision_prop:s0
@@ -186,6 +188,7 @@ diag.oriented		u:object_r:system_prop:s0
 frp.pst                 u:object_r:frppath_prop:s0
 home.operator.		u:object_r:radio_prop:s0
 installd.sdcard_manipulate_done	u:object_r:sdcard_prop:s0
+oneseg.                                     u:object_r:oneseg_prop:s0
 partition.system.               u:object_r:system_prop:s0
 persist.camera.                 u:object_r:camera_prop:s0
 persist.csc.                 u:object_r:csc_prop:s0

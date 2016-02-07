@@ -400,6 +400,7 @@ on post-fs-data
     mkdir /data/misc/sms 0770 system radio
     mkdir /data/misc/zoneinfo 0775 system system
     mkdir /data/misc/vpn 0770 system vpn
+    mkdir /data/misc/eris 0770 system system
     mkdir /data/misc/shared_relro 0771 shared_relro shared_relro
     mkdir /data/misc/systemkeys 0700 system system
     mkdir /data/misc/wifi 0770 wifi wifi
@@ -794,6 +795,7 @@ on boot
     chmod 0660 /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
     chown system system /sys/class/timed_output/vibrator/enable
+    chown system system /sys/class/timed_output/vibrator/intensity		
     chown system system /sys/class/leds/keyboard-backlight/brightness
     chown system system /sys/class/leds/lcd-backlight/brightness
     chown system system /sys/class/leds/button-backlight/brightness
@@ -861,6 +863,7 @@ on boot
    chown system radio /sys/class/power_supply/battery/siop_level
    chown system radio /sys/class/power_supply/battery/siop_event
    chown system radio /sys/class/power_supply/battery/wc_enable
+   chown system nfc /sys/class/power_supply/battery/wc_control
    chown system radio /sys/class/power_supply/battery/update
    chown system radio /sys/class/power_supply/battery/factory_mode_relieve
    chown system radio /sys/class/power_supply/battery/factory_mode_bypass
@@ -880,6 +883,7 @@ on boot
    chown system radio /sys/class/power_supply/battery/lte
    chown system radio /sys/class/power_supply/battery/lcd
    chown system radio /sys/class/power_supply/ps/status
+   chmod 0664 /sys/class/power_supply/battery/wc_control
    chmod 0664 /sys/class/power_supply/ps/status
    chmod 0664 /sys/class/power_supply/battery/batt_temp_table
    chown system radio /sys/class/power_supply/battery/batt_temp_table
