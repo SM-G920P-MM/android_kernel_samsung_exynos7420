@@ -52,9 +52,9 @@ rm -rf *app/UniversalMDMClient*
 rm -rf container/*Knox*
 rm -rf container/*KNOX*
 
-cp /tmp/arter97/default.prop /system/default.prop
-chown 0.0 /system/default.prop
-chmod 644 /system/default.prop
+cp /tmp/arter97/kernel.prop /system/vendor/build.prop
+chown 0.0 /system/vendor/build.prop
+chmod 644 /system/vendor/build.prop
 
 cd /
 ui_print " - setting system-mode SuperSU"
