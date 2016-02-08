@@ -92,6 +92,9 @@ on fs
     write /sys/devices/15570000.ufs/host0/target0:0:0/0:0:0:1/block/sdb/queue/scheduler bfq
     write /sys/devices/15570000.ufs/host0/target0:0:0/0:0:0:2/block/sdc/queue/scheduler bfq
 
+    # Vibrator intensity
+    write /sys/devices/virtual/timed_output/vibrator/intensity 6000
+
 on boot
     ifup lo
     hostname localhost
