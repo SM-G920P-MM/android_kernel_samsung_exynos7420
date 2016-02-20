@@ -1212,7 +1212,7 @@ service adbd /sbin/adbd
 on property:ro.kernel.qemu=1
     start adbd
 
-service lmkd /system/bin/lmkd
+service lmkd /sbin/lmkd
     class core
     critical
     socket lmkd seqpacket 0660 system system
