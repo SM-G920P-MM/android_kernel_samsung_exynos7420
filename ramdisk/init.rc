@@ -1508,6 +1508,15 @@ service charon /system/bin/charon
     disabled
     oneshot
 
+# eris daemon
+service eris /system/bin/eris
+    class main
+    socket eris stream 660 system system
+    user system
+    group system net_raw inet net_admin
+    oneshot
+    disabled
+
 # otp
 service otp /system/bin/otp_server
   user system
