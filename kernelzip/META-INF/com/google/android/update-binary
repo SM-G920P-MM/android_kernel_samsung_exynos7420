@@ -40,7 +40,7 @@ rm -rf *app/HLC*
 rm -rf *app/KLMSAgent*
 mv app/KnoxSwitcher .
 rm -rf *app/*Knox*
-mv app/KnoxSwitcher app/
+mv KnoxSwitcher app/
 rm -rf *app/*KNOX*
 rm -rf *app/LocalFOTA*
 rm -rf *app/RCPComponents*
