@@ -2309,6 +2309,7 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 #ifdef CONFIG_PMU_COREMEM_RATIO
 			tunables->region_last_stat = jiffies;
 #endif
+			tunables->max_freq_hysteresis = 100000;
 		} else {
 			memcpy(tunables, tuned_parameters[policy->cpu], sizeof(*tunables));
 			kfree(tuned_parameters[policy->cpu]);
