@@ -309,14 +309,14 @@ static void cpufreq_interactive_timer_resched(
 	pcpu->cputime_speedadj_timestamp = pcpu->time_in_idle_timestamp;
 	expires = jiffies;
 	if (suspended)
-		expires += usecs_to_jiffies(tunables->timer_rate * 3);
+		expires += (tunables->timer_rate * 3);
 	else
-		expires += usecs_to_jiffies(tunables->timer_rate);
+		expires += tunables->timer_rate;
 	mod_timer_pinned(&pcpu->cpu_timer, expires);
 
 	if (tunables->timer_slack_val >= 0 &&
 	    pcpu->target_freq > pcpu->policy->min) {
-		expires += usecs_to_jiffies(tunables->timer_slack_val);
+		expires += tunables->timer_slack_val;
 		mod_timer_pinned(&pcpu->cpu_slack_timer, expires);
 	}
 
@@ -343,15 +343,15 @@ static void cpufreq_interactive_timer_start(
 
 	expires = jiffies;
 	if (suspended)
-		expires += usecs_to_jiffies(tunables->timer_rate * 3);
+		expires += (tunables->timer_rate * 3);
 	else
-		expires += usecs_to_jiffies(tunables->timer_rate);
+		expires += tunables->timer_rate;
 
 	pcpu->cpu_timer.expires = expires;
 	add_timer_on(&pcpu->cpu_timer, cpu);
 	if (tunables->timer_slack_val >= 0 &&
 	    pcpu->target_freq > pcpu->policy->min) {
-		expires += usecs_to_jiffies(tunables->timer_slack_val);
+		expires += tunables->timer_slack_val;
 		pcpu->cpu_slack_timer.expires = expires;
 		add_timer_on(&pcpu->cpu_slack_timer, cpu);
 	}
@@ -1438,9 +1438,9 @@ static ssize_t show_timer_rate(struct cpufreq_interactive_tunables *tunables,
 		char *buf)
 {
 #ifdef CONFIG_MODE_AUTO_CHANGE
-	return sprintf(buf, "%lu\n", tunables->timer_rate_set[tunables->param_index]);
+	return sprintf(buf, "%u\n", jiffies_to_usecs(tunables->timer_rate_set[tunables->param_index]));
 #else
-	return sprintf(buf, "%lu\n", tunables->timer_rate);
+	return sprintf(buf, "%u\n", jiffies_to_usecs(tunables->timer_rate));
 #endif
 }
 
@@ -1461,6 +1461,8 @@ static ssize_t store_timer_rate(struct cpufreq_interactive_tunables *tunables,
 		pr_warn("timer_rate not aligned to jiffy. Rounded up to %lu\n",
 			val_round);
 
+	val_round = usecs_to_jiffies(val_round);
+
 #ifdef CONFIG_MODE_AUTO_CHANGE
 	spin_lock_irqsave(&tunables->param_index_lock, flags_idx);
 	tunables->timer_rate_set[tunables->param_index] = val_round;
@@ -1476,7 +1478,7 @@ static ssize_t store_timer_rate(struct cpufreq_interactive_tunables *tunables,
 static ssize_t show_timer_slack(struct cpufreq_interactive_tunables *tunables,
 		char *buf)
 {
-	return sprintf(buf, "%d\n", tunables->timer_slack_val);
+	return sprintf(buf, "%u\n", jiffies_to_usecs(tunables->timer_slack_val));
 }
 
 static ssize_t store_timer_slack(struct cpufreq_interactive_tunables *tunables,
@@ -1489,7 +1491,7 @@ static ssize_t store_timer_slack(struct cpufreq_interactive_tunables *tunables,
 	if (ret < 0)
 		return ret;
 
-	tunables->timer_slack_val = val;
+	tunables->timer_slack_val = usecs_to_jiffies(val);
 	return count;
 }
 
