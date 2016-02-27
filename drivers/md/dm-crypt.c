@@ -1756,6 +1756,7 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 
 	ret = -ENOMEM;
 	cc->io_queue = alloc_workqueue("kcryptd_io",
+				       WQ_HIGHPRI |
 				       WQ_NON_REENTRANT|
 				       WQ_MEM_RECLAIM,
 				       1);
@@ -1766,6 +1767,7 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 
 	if (cc->hw_fmp == 0) {
 		cc->crypt_queue = alloc_workqueue("kcryptd",
+					  WQ_HIGHPRI |
 					  WQ_CPU_INTENSIVE | WQ_MEM_RECLAIM,
 					  num_possible_cpus() * 2);
 		if (!cc->crypt_queue) {
