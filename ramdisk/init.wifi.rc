@@ -35,6 +35,14 @@ on post-fs-data
     chmod 0664 /data/.roamoff.info
     chmod 0664 /data/.frameburst.info
     chmod 0664 /data/.txbf.info
+    chmod 0664 /data/.proptx.info
+
+    chmod 0664 /data/.agingtest.info
+
+    chown system wifi /data/.agingtest.info
+
+
+
     # for WIFI MAC address
     mkdir /efs/wifi 0775 radio system
     chown system wifi /efs/wifi/.mac.info

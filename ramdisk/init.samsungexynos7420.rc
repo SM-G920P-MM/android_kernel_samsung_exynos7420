@@ -1,10 +1,9 @@
-
 import init.samsungexynos7420.usb.rc
 import init.wifi.rc
 import init.baseband.rc
 import init.carrier.rc
 import init.fac.rc
-import init.zeroflte_fac.rc
+import init.zerolte_fac.rc
 
 on early-init
     mount debugfs /sys/kernel/debug /sys/kernel/debug
@@ -28,7 +27,6 @@ on init
 
     symlink /dev/block/platform/15570000.ufs/by-name/STEADY /dev/block/steady
     symlink /dev/block/platform/15570000.ufs/by-name/PERSISTENT /dev/block/persistent
-
 
 on post-fs-data
     mkdir /data/media 0770 media_rw media_rw
@@ -487,10 +485,14 @@ on fs
     chown radio system /sys/class/sec/sec_key/wakeup_keys
     write /sys/class/sec/sec_key/wakeup_keys 116,172
 
+# Permissions for hall
+    chown system radio /sys/class/sec/sec_key/hall_irq_ctrl
+
 # Permissions for input_booster
     chown system radio /sys/class/input_booster/level
     chown system radio /sys/class/input_booster/head
     chown system radio /sys/class/input_booster/tail
+    chown system radio /sys/class/input_booster/touch/control
 
 # Permissions for EFS
     chown radio system /efs
@@ -508,17 +510,21 @@ on fs
     chown system system /sys/class/backlight/panel/brightness
     chown system system /sys/class/backlight/panel/auto_brightness
 
-# Permissions for LCD HMT
-    chown system system /sys/class/lcd/panel/hmt_on
-    chown system system /sys/class/lcd/panel/hmt_bright
-    chown system system /sys/class/mdnie/mdnie/hmt_color_temperature
-
 # Permissions for LCD
     chown system radio /sys/class/lcd/panel/manufacture_code
     chown system radio /sys/class/lcd/panel/lcd_type
     chown system system /sys/class/lcd/panel/siop_enable
     chown system system /sys/class/lcd/panel/temperature
-    chown system media_rw /sys/class/backlight/panel/weakness_hbm_comp
+    chown system radio /sys/class/lcd/panel/mcd_mode
+    chown system media_rw /sys/class/backlight/panel/weakness_hbm_comp	
+
+# Permissions for LCD HMT
+    chown system system /sys/class/lcd/panel/hmt_on
+    chown system system /sys/class/lcd/panel/hmt_bright
+    chown system system /sys/class/mdnie/mdnie/hmt_color_temperature
+
+# Permissions for LCD ALPM
+    chown system system /sys/class/lcd/panel/alpm
 
 # Permissions for MDNIE
     chown system media_rw /sys/class/mdnie/mdnie/mode
@@ -716,18 +722,17 @@ on fs
 # Permission for DRM Key
     chmod 0644 /factory/wv.keys
 
-#ARGOSD network_throughput
+# ARGOSD network_throughput
     chown system system /dev/network_throughput
 
 # TSP & Pressure Sensor
     #chown system system /sys/class/sec/tsp/brane
     #chmod 0660 /sys/class/sec/tsp/brane
 
-# DIAG
-service DIAG-daemon /system/bin/diagexe
-    class main
-    user root
-    group system radio inet net_raw
+# emergency firmware update
+on firmware
+    mount_all /fstab.samsungexynos7420.fwup
+    class_start firmware_update
 
 # ARGOSD
 service argos-daemon /system/bin/argosd
@@ -735,18 +740,12 @@ service argos-daemon /system/bin/argosd
     user system
     group system radio
 
-# emergency firmware update
-on firmware
-    mount_all /fstab.samsungexynos7420.fwup
-    class_start firmware_update
-
 service prepare_param /system/bin/prepare_param.sh /dev/block/platform/15570000.ufs/by-name/PARAM
     class core
     user root
     group root
     seclabel u:r:prepare_param:s0
     oneshot
-
 
 # SENSOR FRAMEWORK : starts fingerprintService
 service vcsFPService /system/bin/vcsFPService
@@ -831,6 +830,16 @@ service TvoutService_C /system/bin/bintvoutservice
 on property:ro.SecEDS.enable=false
     stop TvoutService_C
 
+# DRK/CS service
+service cs_service /system/bin/cs
+    class main
+    user system
+    group system
+    disabled
+on property:sys.mobicoredaemon.enable=true
+    start cs_service
+    write /proc/iccc_ready 1
+
 # umount service
 service umount_service /system/bin/umount -D /preload
     disabled
@@ -844,16 +853,6 @@ on property:persist.sys.storage_preload=1
 on property:persist.sys.storage_preload=0
     start umount_service
 
-# DRK/CS service
-service cs_service /system/bin/cs
-    class main
-    user system
-    group system
-    disabled
-on property:sys.mobicoredaemon.enable=true
-    start cs_service
-    write /proc/iccc_ready 1
-
 # SSWAP
 service swapon /sbin/sswap -s -f 2048
     class core
@@ -861,13 +860,6 @@ service swapon /sbin/sswap -s -f 2048
     group root
     seclabel u:r:sswap:s0
     oneshot
-
-# IPSec for VOLTE
-service ipsec-daemon /system/bin/IPSecService
-    class main
-    socket ipsec_socket stream 660 system system
-    user system
-    group system net_raw inet net_admin
 
 # RTC logging daemon
 service rtc_log /system/bin/rtc_log.sh
@@ -891,9 +883,40 @@ on property:sys.boot_completed=1
 on property:security.semdaemonfinish=1
     stop sem_daemon
 
+# IPSec for VOLTE
+    chown root system /dev/socket
+    chmod 0775 /dev/socket
+
+# IPSec for VOLTE
+service ipsec-daemon /system/bin/IPSecService
+    class main
+    socket ipsec_socket stream 660 system system
+    user system
+    group system net_raw inet net_admin
 
 # On-Board DM
 service DMM-deamon /system/bin/dmm_v2
     class main
     user root
     group root system radio inet net_raw
+
+# Blowfish tzdaemon
+service tz_service /system/bin/tzdaemon
+    class core
+    socket tz stream 0666 system system
+    user system
+    group system
+    disabled
+
+service taa_service /system/bin/taadaemon
+    class core
+    socket taa stream 0666 system system
+    user system
+    group system
+    disabled
+
+on property:sys.tzdaemon=Ready
+    start taa_service
+
+on property:init.svc.tz_service=stopped
+    setprop sys.tzdaemon NotReady
