@@ -42,6 +42,9 @@
 #define STB_CPUFREQ	1700000
 #define MIN_CPUFREQ	800000
 
+#define INT_PERFORMANCE	500000
+#define INT_SAVE	0
+
 #define BOOST_POLICY_OFFSET	0
 #define BOOST_TIME_OFFSET	16
 
@@ -63,7 +66,8 @@ struct timer_work {
 	struct kthread_work work;
 };
 
-static struct pm_qos_request secos_booster_cluster1_qos;
+static struct pm_qos_request secos_booster_cluster_qos;
+static struct pm_qos_request secos_booster_int_freq_qos;
 static struct hrtimer timer;
 static int max_cpu_freq;
 
@@ -109,6 +113,12 @@ int secos_booster_request_pm_qos(struct pm_qos_request *req, s32 freq)
 	}
 
 	pm_qos_update_request(req, freq);
+
+	if (freq == 0) {
+		pm_qos_update_request(&secos_booster_int_freq_qos, INT_SAVE);
+	} else if (freq == max_cpu_freq) {
+		pm_qos_update_request(&secos_booster_int_freq_qos, INT_PERFORMANCE);
+	}
 
 	recent_qos_req_time = ktime_get();
 
@@ -212,7 +222,7 @@ int secos_booster_start(enum secos_boost_policy policy)
 	else
 		freq = MIN_CPUFREQ;
 
-	if (secos_booster_request_pm_qos(&secos_booster_cluster1_qos, freq)) { /* KHz */
+	if (secos_booster_request_pm_qos(&secos_booster_cluster_qos, freq)) { /* KHz */
 		ret = -EPERM;
 		goto error;
 	}
@@ -222,7 +232,7 @@ int secos_booster_start(enum secos_boost_policy policy)
 		udelay(100);
 		if (!cpu_online(DEFAULT_BIG_CORE)) {
 			pr_debug("%s: %d core is offline\n", __func__, DEFAULT_BIG_CORE);
-			secos_booster_request_pm_qos(&secos_booster_cluster1_qos, 0);
+			secos_booster_request_pm_qos(&secos_booster_cluster_qos, 0);
 			ret = -EPERM;
 			goto error;
 		}
@@ -231,7 +241,7 @@ int secos_booster_start(enum secos_boost_policy policy)
 	ret = mc_switch_core(DEFAULT_BIG_CORE);
 	if (ret) {
 		pr_err("%s: mc switch failed : err:%d\n", __func__, ret);
-		secos_booster_request_pm_qos(&secos_booster_cluster1_qos, 0);
+		secos_booster_request_pm_qos(&secos_booster_cluster_qos, 0);
 		ret = -EPERM;
 		goto error;
 	}
@@ -278,7 +288,7 @@ int secos_booster_stop(void)
 		if (ret)
 			pr_err("%s: mc switch core failed. err:%d\n", __func__, ret);
 
-		secos_booster_request_pm_qos(&secos_booster_cluster1_qos, 0);
+		secos_booster_request_pm_qos(&secos_booster_cluster_qos, 0);
 	} else {
 		/* mismatched usage count */
 		pr_warn("boost usage count sync mismatched. count : %d\n", mc_boost_usage_count);
@@ -329,7 +339,8 @@ static int __init secos_booster_init(void)
 
 	max_cpu_freq = cpufreq_quick_get_max(DEFAULT_BIG_CORE);
 
-	pm_qos_add_request(&secos_booster_cluster1_qos, PM_QOS_CLUSTER1_FREQ_MIN, 0);
+	pm_qos_add_request(&secos_booster_cluster_qos, PM_QOS_CLUSTER1_FREQ_MIN, 0);
+	pm_qos_add_request(&secos_booster_int_freq_qos, PM_QOS_DEVICE_THROUGHPUT, 0);
 
 	register_pm_notifier(&secos_booster_pm_notifier_block);
 

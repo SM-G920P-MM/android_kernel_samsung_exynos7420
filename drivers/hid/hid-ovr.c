@@ -21,23 +21,47 @@
 #include <linux/module.h>
 #include <linux/usb.h>
 #include <linux/hidraw.h>
+#include <linux/netdevice.h>
+#include <linux/interrupt.h>
 #include "hid-ids.h"
 
-#ifdef CONFIG_ARCH_EXYNOS7
-#define WLAN0_RPS_CONTROL // 7420
-#endif
+struct rpscpus_data {
+	char          netdev_name[16];
+	unsigned long netdev_name_len;
+	char          rpscpus[4];
+	unsigned long rpscpus_len;
+	char          default_rpscpus[4];
+	unsigned long default_rpscpus_len;
+};
+
+struct irq_affinity_data {
+	unsigned long irq_num;
+	char          irq_affinity[4];
+	unsigned long irq_affinity_len;
+	char          default_irq_affinity[4];
+	unsigned long default_irq_affinity_len;
+};
+
+#define OVRIOCGSERIALSIZE	_IOR('H', 0x01, int)
+#define OVRIOCGSERIAL(len)	_IOC(_IOC_READ, 			'S', 0x02, len)
+#define OVRIOCSRPSCPUS		_IOC(_IOC_WRITE|_IOC_READ,	'S', 0x03, sizeof(struct rpscpus_data))
+#define OVRIOCSIRQAFFINITY	_IOC(_IOC_WRITE|_IOC_READ,	'S', 0x04, sizeof(struct irq_affinity_data))
+
+struct rpscpus_data ovr_rpscpu_data;
+struct irq_affinity_data ovr_irq_affinity_data;
 
 #define USB_TRACKER_INTERFACE_PROTOCOL	0
 
 /* number of reports to buffer */
 #define OVR_HIDRAW_BUFFER_SIZE 64
-
 #define OVR_HIDRAW_MAX_DEVICES 64
-
 #define OVR_FIRST_MINOR 0
+#define OVR_HIDRAW_MAX_SERIAL 256
+
+static char ovr_serial[OVR_HIDRAW_MAX_SERIAL] = {0,};
+static char ovr_serial_len = 0;
 
 static struct class *ovr_class;
-
 static struct hidraw *ovr_hidraw_table[OVR_HIDRAW_MAX_DEVICES];
 static DEFINE_MUTEX(minors_lock);
 static DEFINE_SPINLOCK(list_lock);
@@ -50,11 +74,15 @@ static int opens = 0;
 static unsigned long monitor_info[MONITOR_MAX][4] = {{0,},};
 static unsigned int isr_count = 0;
 static unsigned long last_isr = 0;
-
-unsigned int ovr_minor = 0;
-static void ovr_monitor_work(struct work_struct *work);
+static unsigned int ovr_minor = 0;
 static struct workqueue_struct *ovr_wq;
+static void ovr_monitor_work(struct work_struct *work);
 static DECLARE_DELAYED_WORK(ovr_work, ovr_monitor_work);
+static void ovr_rpscpus_work_func(struct work_struct *work);
+static DECLARE_DELAYED_WORK(ovr_rpscpus_work, ovr_rpscpus_work_func);
+static void ovr_irq_affinity_work_func(struct work_struct *work);
+static DECLARE_DELAYED_WORK(ovr_irq_affinity_work, ovr_irq_affinity_work_func);
+extern int irq_select_affinity_usr(unsigned int irq, struct cpumask *mask);
 
 static ssize_t ovr_hidraw_read(struct file *file, char __user *buffer, size_t count, loff_t *ppos)
 {
@@ -348,19 +376,7 @@ static int ovr_hidraw_open(struct inode *inode, struct file *file)
 	file->private_data = list;
 
 	dev = ovr_hidraw_table[minor];
-	if (!dev->open++) {
-		err = hid_hw_power(dev->hid, PM_HINT_FULLON);
-		if (err < 0) {
-			dev->open--;
-			goto out_unlock;
-		}
-
-		err = hid_hw_open(dev->hid);
-		if (err < 0) {
-			hid_hw_power(dev->hid, PM_HINT_NORMAL);
-			dev->open--;
-		}
-	}
+	dev->open++;
 
 	if (minor == ovr_minor) {
 		int i;
@@ -434,10 +450,7 @@ static int ovr_hidraw_release(struct inode * inode, struct file * file)
 	}
 
 	if (!dev->open) {
-		if (list->hidraw->exist) {
-			hid_hw_power(dev->hid, PM_HINT_NORMAL);
-			hid_hw_close(dev->hid);
-		} else {
+		if (!list->hidraw->exist) {
 			printk("OVR: freed ovr_hidraw_table %d\n", minor);
 			kfree(list->hidraw);
 			ovr_hidraw_table[minor] = NULL;
@@ -457,7 +470,7 @@ unlock:
 	return ret;
 }
 
-int ovr_report_event(struct hid_device *hid, u8 *data, int len)
+static int ovr_report_event(struct hid_device *hid, u8 *data, int len)
 {
 	struct hidraw *dev = hid->hidovr;
 	struct hidraw_list *list;
@@ -488,30 +501,273 @@ int ovr_report_event(struct hid_device *hid, u8 *data, int len)
 	return ret;
 }
 
-#ifdef WLAN0_RPS_CONTROL
-#include <linux/kernel.h>
-#include <linux/init.h>
-#include <linux/syscalls.h>
-#include <linux/file.h>
-#include <linux/fs.h>
-#include <linux/fcntl.h>
-#include <asm/uaccess.h>
-static void write_file(char *filename, char *data)
+static ssize_t get_rps_cpus(char *name, int name_size, char *buf)
 {
-	struct file *fp;
-	loff_t pos = 0;
-	mm_segment_t old_fs = get_fs();
-	set_fs(KERNEL_DS);
-	fp = filp_open(filename, O_WRONLY, (int)0644);
-	if (fp) {
-		fp->f_op->write(fp, data, strlen(data), &pos);
-		filp_close(fp, current->files);
+	size_t len = 0;
+
+#ifdef CONFIG_RPS
+	struct net_device *dev;
+	struct netdev_rx_queue *queue = NULL;
+	struct rps_map *map;
+	cpumask_var_t mask;
+	int i;
+
+	if (name_size <= 0) {
+		return len;
 	}
-	set_fs(old_fs);
-}
+
+	dev = first_net_device(&init_net);
+	while (dev) {
+		if (!memcmp(name, dev->name, name_size)) {
+			queue = dev->_rx;
+			if (!queue) {
+				return -1;
+			}
+
+			if (!zalloc_cpumask_var(&mask, GFP_KERNEL))
+				return -ENOMEM;
+
+			rcu_read_lock();
+			map = rcu_dereference(queue->rps_map);
+			if (map)
+				for (i = 0; i < map->len; i++)
+					cpumask_set_cpu(map->cpus[i], mask);
+
+			len += cpumask_scnprintf(buf + len, 4, mask);
+			if (PAGE_SIZE - len < 3) {
+				rcu_read_unlock();
+				free_cpumask_var(mask);
+				return -EINVAL;
+			}
+			rcu_read_unlock();
+			free_cpumask_var(mask);
+
+			break;
+		}
+
+		dev = next_net_device(dev);
+	}
 #endif
 
-int ovr_connect(struct hid_device *hid)
+	return len;
+}
+
+static int set_rps_cpus(char *name, int name_size, char *buf, size_t len)
+{
+	int ret = -1;
+
+#ifdef CONFIG_RPS
+	struct net_device *dev;
+	struct netdev_rx_queue *queue = NULL;
+	struct rps_map *old_map, *map;
+	cpumask_var_t mask;
+	int err, cpu, i;
+	static DEFINE_SPINLOCK(rps_map_lock);
+
+	if (name_size <= 0 || len < 1 || len > 4) {
+		return ret;
+	}
+
+	dev = first_net_device(&init_net);
+	while (dev) {
+		if (!memcmp(name, dev->name, name_size)) {
+			queue = dev->_rx;
+			if (!queue) {
+				return -1;
+			}
+
+			if (len == 0 || (len == 1 && buf[0] == '0') || (len == 2 && buf[0] == '0' && buf[1] == '0')) {
+				map = rcu_dereference_protected(queue->rps_map, 1);
+				if (map) {
+					RCU_INIT_POINTER(queue->rps_map, NULL);
+					kfree_rcu(map, rcu);
+				}
+
+				return 0;
+			}
+
+			if (!alloc_cpumask_var(&mask, GFP_KERNEL)) {
+				return -ENOMEM;
+			}
+
+			err = bitmap_parse(buf, len, cpumask_bits(mask), nr_cpumask_bits);
+			if (err) {
+				free_cpumask_var(mask);
+				return err;
+			}
+
+			map = kzalloc(max_t(unsigned int,
+				RPS_MAP_SIZE(cpumask_weight(mask)), L1_CACHE_BYTES),
+				GFP_KERNEL);
+			if (!map) {
+				free_cpumask_var(mask);
+				return -ENOMEM;
+			}
+
+			i = 0;
+			for_each_cpu(cpu, mask)
+				map->cpus[i++] = cpu;
+
+			if (i)
+				map->len = i;
+			else {
+				kfree(map);
+				map = NULL;
+				free_cpumask_var(mask);
+				return -1;
+			}
+
+			spin_lock(&rps_map_lock);
+			old_map = rcu_dereference_protected(queue->rps_map,
+				lockdep_is_held(&rps_map_lock));
+			rcu_assign_pointer(queue->rps_map, map);
+			spin_unlock(&rps_map_lock);
+
+			if (map)
+				static_key_slow_inc(&rps_needed);
+			if (old_map) {
+				kfree_rcu(old_map, rcu);
+				static_key_slow_dec(&rps_needed);
+			}
+			free_cpumask_var(mask);
+			ret = map->len;
+
+			break;
+		}
+
+		dev = next_net_device(dev);
+	}
+#endif
+
+	return ret;
+}
+
+static int write_irq_affinity(unsigned int irq, const char __user *buffer, size_t count)
+{
+	int err = -1;
+
+#ifdef CONFIG_SMP
+	cpumask_var_t new_value;
+
+	if (count < 1 || count > 4) {
+		return err;
+	}
+
+	if (!irq_can_set_affinity(irq))
+		return -EIO;
+
+	if (!alloc_cpumask_var(&new_value, GFP_KERNEL))
+		return -ENOMEM;
+
+	err = cpumask_parse_user(buffer, count, new_value);
+	if (err)
+		goto free_cpumask;
+
+	if (!cpumask_intersects(new_value, cpu_online_mask)) {
+		err = irq_select_affinity_usr(irq, new_value) ? -EINVAL : count;
+	} else {
+		irq_set_affinity(irq, new_value);
+		err = count;
+	}
+
+free_cpumask:
+	free_cpumask_var(new_value);
+#endif
+
+	return err;
+}
+
+void init_ovr_data(void) {
+
+	ovr_rpscpu_data.netdev_name[0] = 'w';
+	ovr_rpscpu_data.netdev_name[1] = 'l';
+	ovr_rpscpu_data.netdev_name[2] = 'a';
+	ovr_rpscpu_data.netdev_name[3] = 'n';
+	ovr_rpscpu_data.netdev_name[4] = '0';
+	ovr_rpscpu_data.netdev_name_len = 5;
+	ovr_rpscpu_data.rpscpus_len = 0;
+	ovr_rpscpu_data.default_rpscpus_len = 0;
+
+	ovr_irq_affinity_data.irq_num = 0;
+	ovr_irq_affinity_data.irq_affinity_len = 0;
+	ovr_irq_affinity_data.default_irq_affinity_len = 0;
+
+#if defined(CONFIG_SOC_EXYNOS7420)
+	ovr_rpscpu_data.rpscpus[0] = 'f';
+	ovr_rpscpu_data.rpscpus[1] = '0';
+	ovr_rpscpu_data.rpscpus_len = 2;
+#elif defined(CONFIG_ARCH_APQ8084)
+	ovr_rpscpu_data.rpscpus[0] = 'c';
+	ovr_rpscpu_data.rpscpus_len = 1;
+
+	ovr_irq_affinity_data.irq_num = 276;
+	ovr_irq_affinity_data.irq_affinity[0] = '2';
+	ovr_irq_affinity_data.irq_affinity_len = 1;
+	ovr_irq_affinity_data.default_irq_affinity[0] = 'f';
+	ovr_irq_affinity_data.default_irq_affinity_len = 1;
+#endif
+}
+
+void set_rpscpus(int bSet) {
+
+	if (bSet) {
+		if (ovr_rpscpu_data.rpscpus_len > 0) {
+
+			if (ovr_rpscpu_data.rpscpus_len < 16) {
+				ovr_rpscpu_data.netdev_name[ovr_rpscpu_data.netdev_name_len] = 0;
+				printk("OVR: rpscpus i/f : %s\n", ovr_rpscpu_data.netdev_name); 
+			}
+
+			ovr_rpscpu_data.default_rpscpus_len = 
+				get_rps_cpus(ovr_rpscpu_data.netdev_name, 
+					ovr_rpscpu_data.netdev_name_len, 
+					ovr_rpscpu_data.default_rpscpus);
+			set_rps_cpus(ovr_rpscpu_data.netdev_name, 
+				ovr_rpscpu_data.netdev_name_len, 
+				ovr_rpscpu_data.rpscpus, 
+				ovr_rpscpu_data.rpscpus_len);
+		}
+	} else {
+		if (ovr_rpscpu_data.default_rpscpus_len > 0) {
+			set_rps_cpus(ovr_rpscpu_data.netdev_name, 
+				ovr_rpscpu_data.netdev_name_len, 
+				ovr_rpscpu_data.default_rpscpus, 
+				ovr_rpscpu_data.default_rpscpus_len);
+		}
+	}
+}
+
+void set_irq_affinity(int bSet) {
+
+	if (bSet) {
+		if (ovr_irq_affinity_data.irq_affinity_len > 0) {
+
+			printk("OVR: affinity irq : %d\n", (int)ovr_irq_affinity_data.irq_num);
+
+			write_irq_affinity(ovr_irq_affinity_data.irq_num, 
+				ovr_irq_affinity_data.irq_affinity, 
+				ovr_irq_affinity_data.irq_affinity_len);
+		}
+	} else {
+		if (ovr_irq_affinity_data.default_irq_affinity_len > 0) {
+			write_irq_affinity(ovr_irq_affinity_data.irq_num, 
+				ovr_irq_affinity_data.default_irq_affinity, 
+				ovr_irq_affinity_data.default_irq_affinity_len);
+		}
+	}
+}
+
+static void ovr_rpscpus_work_func(struct work_struct *work)
+{
+	set_rpscpus(1);
+}
+
+static void ovr_irq_affinity_work_func(struct work_struct *work)
+{
+	set_irq_affinity(1);
+}
+
+static int ovr_connect(struct hid_device *hid)
 {
 	int minor, result, i;
 	struct hidraw *dev;
@@ -575,15 +831,15 @@ int ovr_connect(struct hid_device *hid)
 	dev->exist = 1;
 	hid->hidovr = dev;
 
-#ifdef WLAN0_RPS_CONTROL
-	write_file("/sys/class/net/wlan0/queues/rx-0/rps_cpus","f0");
-#endif
+	init_ovr_data();
+	set_rpscpus(1);
+	set_irq_affinity(1);
 
 out:
 	return result;
 }
 
-void ovr_disconnect(struct hid_device *hid)
+static void ovr_disconnect(struct hid_device *hid)
 {
 	struct hidraw *hidraw = hid->hidovr;
 
@@ -601,9 +857,6 @@ void ovr_disconnect(struct hid_device *hid)
 	device_destroy(ovr_class, MKDEV(ovr_major, hidraw->minor));
 
 	if (hidraw->open) {
-		hid_hw_power(hid, PM_HINT_NORMAL);
-		hid_hw_close(hid);
-
 		wake_up_interruptible(&hidraw->wait);
 	} else {
 		printk("OVR: freed ovr_hidraw_table %d\n", hidraw->minor);
@@ -615,9 +868,8 @@ void ovr_disconnect(struct hid_device *hid)
 
 	mutex_unlock(&minors_lock);
 
-#ifdef WLAN0_RPS_CONTROL
-	write_file("/sys/class/net/wlan0/queues/rx-0/rps_cpus","0");
-#endif
+	set_rpscpus(0);
+	set_irq_affinity(0);
 }
 
 static long ovr_hidraw_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
@@ -672,6 +924,47 @@ static long ovr_hidraw_ioctl(struct file *file, unsigned int cmd, unsigned long 
 			{
 				struct hid_device *hid = dev->hid;
 				if (_IOC_TYPE(cmd) != 'H') {
+
+					if (_IOC_TYPE(cmd) == 'S') {
+						if (cmd == OVRIOCGSERIALSIZE) {
+							if (ovr_serial_len <= 0) 
+								ret = 0;
+							else if (put_user(ovr_serial_len, (int __user *)arg))
+								ret = -EFAULT;
+							break;
+						} else if (_IOC_NR(cmd) == _IOC_NR(OVRIOCGSERIAL(0))) {
+							__u32 len;
+							
+							if (ovr_serial_len <= 0)
+								ret = -EFAULT;								
+							else if (get_user(len, (int __user *)arg))
+								ret = -EFAULT;
+							else if (len != ovr_serial_len)
+								ret = -EINVAL;
+							else if (copy_to_user(user_arg, ovr_serial, ovr_serial_len))
+								ret = -EFAULT;
+							break;
+						} else if (cmd == OVRIOCSRPSCPUS) {
+							ret = copy_from_user(&ovr_rpscpu_data, user_arg, sizeof(struct rpscpus_data));
+							if (!ret && 
+								ovr_rpscpu_data.netdev_name_len > 0 && ovr_rpscpu_data.netdev_name_len <= 16 &&
+								ovr_rpscpu_data.rpscpus_len > 0 && ovr_rpscpu_data.rpscpus_len <= 4) {
+								queue_delayed_work(ovr_wq, &ovr_rpscpus_work, 0);
+							}
+							break;
+						} else if (cmd == OVRIOCSIRQAFFINITY) {
+							ret = copy_from_user(&ovr_irq_affinity_data, user_arg, sizeof(struct irq_affinity_data));
+							if (!ret && ovr_irq_affinity_data.irq_num > 0 && 
+								ovr_irq_affinity_data.irq_affinity_len > 0 && 
+								ovr_irq_affinity_data.irq_affinity_len <= 4 &&
+								ovr_irq_affinity_data.default_irq_affinity_len > 0 && 
+								ovr_irq_affinity_data.default_irq_affinity_len <= 4) {
+								queue_delayed_work(ovr_wq, &ovr_irq_affinity_work, 0);
+							}
+							break;
+						}
+					}
+
 					ret = -EINVAL;
 					break;
 				}
@@ -759,14 +1052,34 @@ static int ovr_probe(struct hid_device *hdev, const struct hid_device_id *id)
 
 	if (intf) {
 		struct usb_device *udev = interface_to_usbdev(intf);
-		if (udev)
-			printk("OVR: %s\n", udev->serial);
+		if (udev) {
+			ovr_serial_len = strnlen(udev->serial, OVR_HIDRAW_MAX_SERIAL);
+			if (ovr_serial_len > 0) {
+				strncpy(ovr_serial, udev->serial, ovr_serial_len);
+				printk("OVR: %s(%d)\n", udev->serial, ovr_serial_len);
+			}
+		}
 	}
 
 	retval = ovr_connect(hdev);
 
 	if (retval) {
 		hid_err(hdev, "ovr - Couldn't connect\n");
+		goto exit_stop;
+	}
+
+	retval = hid_hw_power(hdev, PM_HINT_FULLON);
+	if (retval < 0) {
+		hid_err(hdev, "ovr - Couldn't feed power\n");
+		ovr_disconnect(hdev);
+		goto exit_stop;
+	}
+
+	retval = hid_hw_open(hdev);
+	if (retval < 0) {
+		hid_err(hdev, "ovr - Couldn't open hid\n");
+		hid_hw_power(hdev, PM_HINT_NORMAL);
+		ovr_disconnect(hdev);
 		goto exit_stop;
 	}
 
@@ -786,6 +1099,10 @@ static void ovr_remove(struct hid_device *hdev)
 		hid_hw_stop(hdev);
 		return;
 	}
+
+	hid_hw_close(hdev);
+
+	hid_hw_power(hdev, PM_HINT_NORMAL);
 
 	ovr_disconnect(hdev);
 

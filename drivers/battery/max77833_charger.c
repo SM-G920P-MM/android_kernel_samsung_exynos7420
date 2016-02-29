@@ -56,6 +56,7 @@ static enum power_supply_property max77833_charger_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_AICL_CONTROL,
 	POWER_SUPPLY_PROP_INPUT_VOLTAGE_REGULATION,
 	POWER_SUPPLY_PROP_CHARGE_COUNTER_SHADOW,
+	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
 };
 static enum power_supply_property max77833_otg_props[] = {
 	POWER_SUPPLY_PROP_ONLINE,
@@ -230,83 +231,87 @@ static int max77833_get_charging_health(struct max77833_charger_data *charger)
 	int retry_cnt;
 	u8 chg_dtls_00, chg_dtls;
 	u8 chg_cnfg_00, chg_cnfg_04 ,chg_cnfg_05, chg_cnfg_06, chg_cnfg_16, chg_cnfg_18;
+	union power_supply_propval value;
 
-		union power_supply_propval value;
-		psy_do_property("battery", get,
-				POWER_SUPPLY_PROP_HEALTH, value);
-		/* VBUS OVP state return battery OVP state */
-		vbus_state = max77833_get_vbus_state(charger);
-		/* read CHG_DTLS and detecting battery terminal error */
+        /* watchdog kick */
+	max77833_update_reg(charger->i2c, MAX77833_CHG_REG_CNFG_12,
+			MAX77833_WDTCLR, MAX77833_WDTCLR);
+
+	psy_do_property("battery", get,
+			POWER_SUPPLY_PROP_HEALTH, value);
+	/* VBUS OVP state return battery OVP state */
+	vbus_state = max77833_get_vbus_state(charger);
+	/* read CHG_DTLS and detecting battery terminal error */
+	max77833_read_reg(charger->i2c,
+			  MAX77833_CHG_REG_DTLS_01, &chg_dtls);
+	chg_dtls = ((chg_dtls & MAX77833_CHG_DTLS) >>
+		    MAX77833_CHG_DTLS_SHIFT);
+	max77833_read_reg(charger->i2c,
+			  MAX77833_CHG_REG_CNFG_00, &chg_cnfg_00);
+
+	/* print the log at the abnormal case */
+	if((charger->is_charging == 1) && (chg_dtls & 0x08)) {
 		max77833_read_reg(charger->i2c,
-				  MAX77833_CHG_REG_DTLS_01, &chg_dtls);
-		chg_dtls = ((chg_dtls & MAX77833_CHG_DTLS) >>
-			    MAX77833_CHG_DTLS_SHIFT);
+			MAX77833_CHG_REG_DTLS_00, &chg_dtls_00);
 		max77833_read_reg(charger->i2c,
-				  MAX77833_CHG_REG_CNFG_00, &chg_cnfg_00);
+			MAX77833_CHG_REG_CNFG_04, &chg_cnfg_04);
+		max77833_read_reg(charger->i2c,
+			MAX77833_CHG_REG_CNFG_05, &chg_cnfg_05);
+		max77833_read_reg(charger->i2c,
+			MAX77833_CHG_REG_CNFG_06, &chg_cnfg_06);
+		max77833_read_reg(charger->i2c,
+				MAX77833_CHG_REG_CNFG_16, &chg_cnfg_16);
+		max77833_read_reg(charger->i2c,
+				MAX77833_CHG_REG_CNFG_18, &chg_cnfg_18);
 
-		/* print the log at the abnormal case */
-		if((charger->is_charging == 1) && (chg_dtls & 0x08)) {
-			max77833_read_reg(charger->i2c,
-				MAX77833_CHG_REG_DTLS_00, &chg_dtls_00);
-			max77833_read_reg(charger->i2c,
-				MAX77833_CHG_REG_CNFG_04, &chg_cnfg_04);
-			max77833_read_reg(charger->i2c,
-				MAX77833_CHG_REG_CNFG_05, &chg_cnfg_05);
-			max77833_read_reg(charger->i2c,
-				MAX77833_CHG_REG_CNFG_06, &chg_cnfg_06);
-			max77833_read_reg(charger->i2c,
-					MAX77833_CHG_REG_CNFG_16, &chg_cnfg_16);
-			max77833_read_reg(charger->i2c,
-					MAX77833_CHG_REG_CNFG_18, &chg_cnfg_18);
+		pr_info("%s: CHG_DTLS_00(0x%x), CHG_DTLS_01(0x%x), CHG_CNFG_00(0x%x)\n",
+			__func__, chg_dtls_00, chg_dtls, chg_cnfg_00);
+		pr_info("%s:  CHG_CNFG_04(0x%x), CHG_CNFG_05(0x%x), CHG_CNFG_06(0x%x)\n",
+			__func__, chg_cnfg_04, chg_cnfg_05, chg_cnfg_06);
+		pr_info("%s:  CHG_CNFG_16(0x%x), CHG_CNFG_18(0x%x)\n",
+			__func__, chg_cnfg_16, chg_cnfg_18);
+		max77833_set_charger_state(charger, 0);
+		max77833_set_charger_state(charger, 1);
+	}
 
-			pr_info("%s: CHG_DTLS_00(0x%x), CHG_DTLS_01(0x%x), CHG_CNFG_00(0x%x)\n",
-				__func__, chg_dtls_00, chg_dtls, chg_cnfg_00);
-			pr_info("%s:  CHG_CNFG_04(0x%x), CHG_CNFG_05(0x%x), CHG_CNFG_06(0x%x)\n",
-				__func__, chg_cnfg_04, chg_cnfg_05, chg_cnfg_06);
-			pr_info("%s:  CHG_CNFG_16(0x%x), CHG_CNFG_18(0x%x)\n",
-				__func__, chg_cnfg_16, chg_cnfg_18);
-			max77833_set_charger_state(charger, 0);
-			max77833_set_charger_state(charger, 1);
+	pr_info("%s: vbus_state : 0x%x, chg_dtls : 0x%x\n", __func__, vbus_state, chg_dtls);
+	/*  OVP is higher priority */
+	if (vbus_state == 0x02) { /*  CHGIN_OVLO */
+		pr_info("%s: vbus ovp\n", __func__);
+		state = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
+		if (charger->cable_type == POWER_SUPPLY_TYPE_WIRELESS ||
+			charger->cable_type == POWER_SUPPLY_TYPE_HV_WIRELESS ||
+			charger->cable_type == POWER_SUPPLY_TYPE_PMA_WIRELESS ) {
+			retry_cnt = 0;
+			do {
+				msleep(50);
+				vbus_state = max77833_get_vbus_state(charger);
+			} while((retry_cnt++ < 2) && (vbus_state == 0x02));
+			if (vbus_state == 0x02) {
+				state = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
+				pr_info("%s: wpc and over-voltage\n", __func__);
+			} else
+				state = POWER_SUPPLY_HEALTH_GOOD;
 		}
-
-		pr_info("%s: vbus_state : 0x%d, chg_dtls : 0x%d\n", __func__, vbus_state, chg_dtls);
-		/*  OVP is higher priority */
-		if (vbus_state == 0x02) { /*  CHGIN_OVLO */
-			pr_info("%s: vbus ovp\n", __func__);
-			state = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
-			if (charger->cable_type == POWER_SUPPLY_TYPE_WIRELESS ||
-				charger->cable_type == POWER_SUPPLY_TYPE_HV_WIRELESS ||
-				charger->cable_type == POWER_SUPPLY_TYPE_PMA_WIRELESS ) {
-				retry_cnt = 0;
-				do {
-					msleep(50);
-					vbus_state = max77833_get_vbus_state(charger);
-				} while((retry_cnt++ < 2) && (vbus_state == 0x02));
-				if (vbus_state == 0x02) {
-					state = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
-					pr_info("%s: wpc and over-voltage\n", __func__);
-				} else
-					state = POWER_SUPPLY_HEALTH_GOOD;
-			}
-		} else if (((vbus_state == 0x0) || (vbus_state == 0x01)) && (chg_dtls & 0x08) && \
-			    (chg_cnfg_00 & MAX77833_MODE_BUCK) &&	\
-			    (chg_cnfg_00 & MAX77833_MODE_CHGR) &&	\
-			    (charger->cable_type != POWER_SUPPLY_TYPE_WIRELESS) &&	\
-			    (charger->cable_type != POWER_SUPPLY_TYPE_HV_WIRELESS) &&	\
-			    (charger->cable_type != POWER_SUPPLY_TYPE_PMA_WIRELESS)) {
-			pr_info("%s: vbus is under\n", __func__);
-			state = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
-		} else if ((value.intval == POWER_SUPPLY_HEALTH_UNDERVOLTAGE) && \
-				((vbus_state == 0x0) || (vbus_state == 0x01)) && \
-				(charger->cable_type != POWER_SUPPLY_TYPE_WIRELESS) && \
-				(charger->cable_type != POWER_SUPPLY_TYPE_HV_WIRELESS) && \
-				(charger->cable_type != POWER_SUPPLY_TYPE_PMA_WIRELESS)) {
-			pr_info("%s: keep under-voltage\n", __func__);
-			state = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
-		} else {
-			pr_info("%s: set health good.\n", __func__);
-			state = POWER_SUPPLY_HEALTH_GOOD;
-		}
+	} else if (((vbus_state == 0x0) || (vbus_state == 0x01)) && (chg_dtls & 0x08) && \
+		    (chg_cnfg_00 & MAX77833_MODE_BUCK) &&	\
+		    (chg_cnfg_00 & MAX77833_MODE_CHGR) &&	\
+		    (charger->cable_type != POWER_SUPPLY_TYPE_WIRELESS) &&	\
+		    (charger->cable_type != POWER_SUPPLY_TYPE_HV_WIRELESS) &&	\
+		    (charger->cable_type != POWER_SUPPLY_TYPE_PMA_WIRELESS)) {
+		pr_info("%s: vbus is under\n", __func__);
+		state = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
+	} else if ((value.intval == POWER_SUPPLY_HEALTH_UNDERVOLTAGE) && \
+			((vbus_state == 0x0) || (vbus_state == 0x01)) && \
+			(charger->cable_type != POWER_SUPPLY_TYPE_WIRELESS) && \
+			(charger->cable_type != POWER_SUPPLY_TYPE_HV_WIRELESS) && \
+			(charger->cable_type != POWER_SUPPLY_TYPE_PMA_WIRELESS)) {
+		pr_info("%s: keep under-voltage\n", __func__);
+		state = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
+	} else {
+		pr_info("%s: set health good.\n", __func__);
+		state = POWER_SUPPLY_HEALTH_GOOD;
+	}
 
 	return (int)state;
 }
@@ -537,6 +542,12 @@ static void max77833_set_input_current(struct max77833_charger_data *charger,
 	int quotient_wpc = 0, remainder_wpc = 0;
 	int i =0;
 	static int pre_current_max = 500;
+
+	if (charger->store_mode &&
+	    (charger->cable_type == POWER_SUPPLY_TYPE_HV_UNKNOWN ||
+	     charger->cable_type == POWER_SUPPLY_TYPE_HV_MAINS ||
+	     charger->cable_type == POWER_SUPPLY_TYPE_HV_ERR))
+		input_current = STORE_MODE_INPUT_CURRENT;
 
 	mutex_lock(&charger->charger_mutex);
 
@@ -1222,6 +1233,10 @@ static void max77833_charger_initialize(struct max77833_charger_data *charger)
 		max77833_update_reg(charger->i2c, MAX77833_CHG_REG_CNFG_15, 1, 1);
 #endif
 
+	/* Watchdog Enable */
+	max77833_update_reg(charger->i2c, MAX77833_CHG_REG_CNFG_00,
+				MAX77833_WDTEN, MAX77833_WDTEN);
+
 	max77833_test_read(charger);
 }
 
@@ -1414,6 +1429,8 @@ static int max77833_chg_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_AICL_CONTROL:
 		return -ENODATA;
 	case POWER_SUPPLY_PROP_CHARGE_COUNTER_SHADOW:
+		return -ENODATA;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
 		return -ENODATA;
 	default:
 		return -EINVAL;
@@ -1633,6 +1650,11 @@ static int max77833_chg_set_property(struct power_supply *psy,
 				pr_info("%s: OVP_ENB set to LOW. cable(%d)\n", __func__, charger->cable_type);
 			}
 		}
+		break;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		charger->store_mode = val->intval;
+		max77833_set_input_current(charger, charger->charging_current_max);
+		pr_info("%s : STORE MODE(%d)\n", __func__, charger->store_mode);
 		break;
 	default:
 		return -EINVAL;
@@ -2545,6 +2567,7 @@ static int __devinit max77833_charger_probe(struct platform_device *pdev)
 	charger->afc_detect = false;
 	charger->wc_afc_detect = false;
 	charger->is_mdock = false;
+	charger->store_mode = false;
 	charger->siop_level = 100;
 	charger->siop_event = 0;
 	charger->charging_current_max = 500;
@@ -2730,6 +2753,11 @@ static int __devinit max77833_charger_probe(struct platform_device *pdev)
 			"%s : Failed to create_attrs\n", __func__);
 		goto err_wc_irq;
 	}
+
+	/* watchdog kick */
+	max77833_update_reg(charger->i2c, MAX77833_CHG_REG_CNFG_12,
+			   MAX77833_WDTCLR, MAX77833_WDTCLR);
+
 	pr_info("%s: MAX77833 Charger Driver Loaded\n", __func__);
 
 	return 0;

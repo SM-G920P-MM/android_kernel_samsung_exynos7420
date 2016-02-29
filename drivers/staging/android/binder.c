@@ -1906,8 +1906,13 @@ static int binder_thread_write(struct binder_proc *proc,
 				if (list_empty(&buffer->target_node->async_todo))
 					buffer->target_node->has_async_transaction = 0;
 				else {
-					list_move_tail(buffer->target_node->async_todo.next, &thread->proc->todo);
-					wake_up_interruptible(&thread->proc->wait);
+					uint32_t next_cmd;
+					if (unlikely(ptr < end && !get_user(next_cmd, (binder_uintptr_t __user *)ptr)
+						     && next_cmd == BC_TRANSACTION)) {
+						list_move_tail(buffer->target_node->async_todo.next, &thread->proc->todo);
+						wake_up_interruptible(&thread->proc->wait);
+					} else
+						list_move_tail(buffer->target_node->async_todo.next, &thread->todo);
 				}
 
 			}
@@ -2717,30 +2722,6 @@ static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			goto err;
 		}
 		break;
-
-	/* { System SW, SA_SAMP */
-	// SAMP : Service Process Management
-	case BINDER_GET_PROC_BINDERSTATS: {
-		//get proc stats,(bc_transactions/br_transactions)
-		//used for the binded service
-		int transactions;
-		if (size != sizeof(int)) {
-			ret = -EINVAL;
-			goto err;
-		}
-
-		//Only consider the called times now
-		transactions = proc->stats.br[_IOC_NR(BR_TRANSACTION)] /*+ proc->stats.bc[_IOC_NR(BC_TRANSACTION)] */;
-
-		binder_debug(BINDER_DEBUG_READ_WRITE,
-			"-- BINDER_GET_PROC_BINDERSTATS transactions = %d\n", transactions);
-		if (put_user(transactions, (uint32_t __user *)ubuf)) {
-			ret = -EINVAL;
-			goto err;
-		}
-		break;
-		}
-	/* System SW, SA_SAMP } */
 	default:
 		ret = -EINVAL;
 		goto err;

@@ -1888,7 +1888,6 @@ SYSCALL_DEFINE3(execve,
 				return -EACCES;
 			}
 		}
-#endif	// End of CONFIG_SEC_RESTRICT_FORK
 #ifdef CONFIG_RKP_KDP
 		if(CHECK_ROOT_UID(current) && rkp_cred_enable) {
 			if(rkp_restrict_fork()){
@@ -1900,6 +1899,7 @@ SYSCALL_DEFINE3(execve,
 			}
 		}
 #endif
+#endif	// End of CONFIG_SEC_RESTRICT_FORK
 		error = do_execve(path->name, argv, envp);
 		putname(path);
 	}

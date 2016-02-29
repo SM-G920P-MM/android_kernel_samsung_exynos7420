@@ -20,6 +20,8 @@
 #include <linux/gfp.h>
 #include <linux/suspend.h>
 
+#include <trace/events/sched.h>
+
 #ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
 #include <mach/cpufreq.h>
 #endif
@@ -361,6 +363,7 @@ static int __ref _cpu_down(unsigned int cpu, int tasks_frozen)
 
 out_release:
 	cpu_hotplug_done();
+	trace_sched_cpu_hotplug(cpu, err, 0);
 	if (!err)
 		cpu_notify_nofail(CPU_POST_DEAD | mod, hcpu);
 	return err;
@@ -436,6 +439,7 @@ out_notify:
 		__cpu_notify(CPU_UP_CANCELED | mod, hcpu, nr_calls, NULL);
 out:
 	cpu_hotplug_done();
+	trace_sched_cpu_hotplug(cpu, ret, 1);
 
 	return ret;
 }
@@ -573,6 +577,12 @@ extern struct cpumask hmp_slow_cpu_mask;
 extern int disable_dm_hotplug_before_suspend;
 #endif
 
+#if defined(CONFIG_SENSORS_FP_LOCKSCREEN_MODE)
+extern bool fp_lockscreen_mode;
+#else
+static bool fp_lockscreen_mode = false;
+#endif
+
 void __ref enable_nonboot_cpus(void)
 {
 	int cpu, error;
@@ -588,7 +598,7 @@ void __ref enable_nonboot_cpus(void)
 	arch_enable_nonboot_cpus_begin();
 
 #if defined(CONFIG_SCHED_HMP) && defined(CONFIG_EXYNOS5_DYNAMIC_CPU_HOTPLUG)
-	if (!disable_dm_hotplug_before_suspend)
+	if (!disable_dm_hotplug_before_suspend && !fp_lockscreen_mode)
 		cpumask_and(frozen_cpus, frozen_cpus, &hmp_slow_cpu_mask);
 #endif
 

@@ -1586,6 +1586,12 @@ static int __init mobicore_init(void)
 
 	/* init lock for core switch processing */
 	mutex_init(&ctx.core_switch_lock);
+	
+	/*
+	 * ExySp: for sos performance
+	 * migrate secure OS to a non-booting little core
+	 */
+	mc_switch_core(NONBOOT_LITTLE_CORE);
 
 	memset(&ctx.mci_base, 0, sizeof(ctx.mci_base));
 	MCDRV_DBG(mcd, "initialized");

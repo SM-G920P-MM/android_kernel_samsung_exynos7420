@@ -219,4 +219,3 @@ int update_fmp_hmac(const char *vmlinux_path, const char *hmac_path, unsigned lo
 
 	return 0;
 }
-
