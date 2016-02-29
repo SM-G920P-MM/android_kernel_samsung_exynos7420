@@ -44,9 +44,9 @@ static int maxdsm_cal_read_file(char *filename, char *data, size_t size)
 	set_fs(KERNEL_DS);
 	cal_filp = filp_open(filename, O_RDONLY, 0660);
 	if (IS_ERR(cal_filp)) {
-		pr_err("%s: there is no dsm_cal file\n", __func__);
+		pr_err("%s: dsm works with default calibration.\n", __func__);
+		ret = PTR_ERR(cal_filp);
 		set_fs(old_fs);
-		ret = 0;
 		return ret;
 	}
 	ret = cal_filp->f_op->read(cal_filp, data, size, &cal_filp->f_pos);

@@ -460,12 +460,14 @@ void p9220_send_eop(struct p9220_charger_data *charger, int healt_mode)
 		}
 		break;
 		case POWER_SUPPLY_HEALTH_UNDERVOLTAGE:
+#if 0
 			pr_info("%s ept-reconfigure \n", __func__);
 			ret = p9220_reg_write(charger->client, P9220_END_POWER_TRANSFER_REG, P9220_EPT_RECONFIG);
 			if(ret >= 0) {
 				p9220_set_cmd_reg(charger, P9220_CMD_SEND_EOP_MASK, P9220_CMD_SEND_EOP_MASK);
 				msleep(250);
 			}
+#endif
 		break;
 		default:
 		break;
@@ -662,13 +664,7 @@ void p9220_set_vrect_adjust(struct p9220_charger_data *charger, int set)
 void p9220_mis_align(struct p9220_charger_data *charger)
 {
 	pr_info("%s: Reset M0\n",__func__);
-	if(charger->pdata->cable_type == P9220_PAD_MODE_PMA)
-		p9220_reg_write(charger->client, 0x3040, 0x80); /*restart M0 */
-	else {
-		p9220_send_eop(charger, POWER_SUPPLY_HEALTH_UNDERVOLTAGE);
-		msleep(250);
-		p9220_reg_write(charger->client, 0x3040, 0x80); /*restart M0 */
-	}
+	p9220_reg_write(charger->client, 0x3040, 0x80); /*restart M0 */
 }
 
 int p9220_get_firmware_version(struct p9220_charger_data *charger, int firm_mode)
@@ -1489,10 +1485,6 @@ static int p9220_chg_set_property(struct power_supply *psy,
 				pr_info("%s ept-ot \n", __func__);
 				p9220_send_eop(charger, val->intval);
 			}
-			else if(val->intval == POWER_SUPPLY_HEALTH_UNDERVOLTAGE) {
-				pr_info("%s ept-reconfigure \n", __func__);
-				p9220_send_eop(charger, val->intval);
-			}
 			break;
 		case POWER_SUPPLY_PROP_ONLINE:
 			if(val->intval == POWER_SUPPLY_TYPE_WIRELESS ||
@@ -1742,14 +1734,19 @@ static void p9220_wpc_det_work(struct work_struct *work)
 				POWER_SUPPLY_PROP_ONLINE, value);
 		pr_info("%s: wpc deactivated, set V_INT as PD\n",__func__);
 
-		if (p9220_get_adc(charger, P9220_ADC_VOUT) < 3000) /* Vout < 3000mV, run ept-reconfigure */
-				p9220_send_eop(charger, POWER_SUPPLY_HEALTH_UNDERVOLTAGE);
+		msleep(1000);
+
+		/* if vout <= 3000mV, restart M0 for misalign protect */ 
+		if (p9220_get_adc(charger, P9220_ADC_VOUT) <= 3000) {
+			pr_err("%s Restart M0, wireless detached! \n", __func__);
+			p9220_reg_write(charger->client, 0x3040, 0x80); /*restart M0 */
+		}
 
 		if(!lpcharge) {
 			value.intval = ENABLE;
 			psy_do_property("max77833-charger", set, POWER_SUPPLY_PROP_CHARGE_AICL_CONTROL, value);
 		}
-		msleep(1000);
+
 		value.intval = 0;
 		psy_do_property("max77833-charger", set, POWER_SUPPLY_PROP_CHARGE_COUNTER_SHADOW, value);
 		cancel_delayed_work(&charger->wpc_isr_work);

@@ -136,7 +136,6 @@ struct arizona_machine_priv {
 	int (*external_amp)(int onoff);
 
 #if defined(CONFIG_SND_SOC_MAXIM_DSM_CAL)
-	int dsm_cal_read_cnt;
 	int dsm_cal_rdc;
 	int dsm_cal_temp;
 #endif
@@ -440,7 +439,7 @@ static int get_voice_tracking_info(struct snd_kcontrol *kcontrol,
 
 	ucontrol->value.enumerated.item[0] = (energy_l | energy_r);
 
-	dev_info(codec->dev, "get voice tracking info :0x%08x\n",
+	dev_dbg(codec->dev, "get voice tracking info :0x%08x\n",
 			ucontrol->value.enumerated.item[0]);
 
 	return 0;
@@ -451,7 +450,7 @@ static int set_voice_tracking_info(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
-	dev_info(codec->dev, "set voice tracking info\n");
+	dev_dbg(codec->dev, "set voice tracking info\n");
 	return  0;
 }
 
@@ -621,50 +620,70 @@ static int max9850x_set_param_dump_status(struct snd_kcontrol *kcontrol,
 	return  0;
 }
 #endif
+
 #if defined(CONFIG_SND_SOC_MAXIM_DSM_CAL)
 #define DSM_RDC_ROOM_TEMP	0x2A005C
 #define DSM_AMBIENT_TEMP	0x2A0182
-static int pacific_get_dsm_cal_info(struct snd_soc_card *card)
+static int pacific_dsm_cal_apply(struct snd_soc_card *card)
 {
 	struct arizona_machine_priv *priv = card->drvdata;
+	static bool is_get_temp = false;
+	static bool is_get_rdc = false;
+	static int get_temp_try_cnt = 3;
+	static int get_rdc_try_cnt = 3;
 	int ret;
 
-	ret = maxdsm_cal_get_temp(&priv->dsm_cal_temp);
-	dev_info(card->dev, "temp = 0x%x, ret = %d\n", priv->dsm_cal_temp, ret);
-	if (ret < 0)
-		return ret;
-
-	ret = maxdsm_cal_get_rdc(&priv->dsm_cal_rdc);
-	dev_info(card->dev, "rdc = 0x%x, ret = %d\n", priv->dsm_cal_rdc, ret);
-	if (ret < 0)
-		return ret;
-
-	if (ret == 0) {
-		priv->dsm_cal_rdc = -1;
-		priv->dsm_cal_temp = -1;
+	if (get_temp_try_cnt > 0) {
+		ret = maxdsm_cal_get_temp(&priv->dsm_cal_temp);
+		if (ret == 0 && priv->dsm_cal_temp > 0) {
+			is_get_temp = true;
+			get_temp_try_cnt = 0;
+		} else {
+			if (ret == -ENOENT) {
+				dev_dbg(card->dev,
+					"No such file or directory\n");
+				get_temp_try_cnt = 0;
+				return -1;
+			} else if (ret == -EBUSY) {
+				dev_dbg(card->dev,
+					"Device or resource busy\n");
+			}
+			get_temp_try_cnt--;
+			return -1;
+		}
 	}
-	priv->dsm_cal_read_cnt = 1;
 
-	return ret;
-}
+	if (is_get_temp && get_rdc_try_cnt > 0) {
+		ret = maxdsm_cal_get_rdc(&priv->dsm_cal_rdc);
+		if (ret == 0 && priv->dsm_cal_rdc > 0) {
+			is_get_rdc = true;
+			get_rdc_try_cnt = 0;
+		} else {
+			if (ret == -ENOENT) {
+				dev_dbg(card->dev,
+					"No such file or directory\n");
+				get_rdc_try_cnt = 0;
+				return -1;
+			} else if (ret == -EBUSY) {
+				dev_dbg(card->dev,
+					"Device or resource busy\n");
+			}
+			get_rdc_try_cnt--;
+			return -1;
+		}
+	}
 
-static int pacific_set_dsm_cal_info(struct snd_soc_card *card)
-{
-	struct arizona_machine_priv *priv = card->drvdata;
-	int ret = 0;
-
-	dev_info(card->dev, "rdc=%d, temp = %d\n",
-					priv->dsm_cal_rdc, priv->dsm_cal_temp);
-
-	if (priv->dsm_cal_temp >= 0 && priv->dsm_cal_rdc >= 0) {
-		dev_info(card->dev, "write dsm_cal values properly\n");
+	if (is_get_temp && is_get_rdc) {
 		regmap_write(priv->regmap_dsp, DSM_AMBIENT_TEMP,
-				(unsigned int)priv->dsm_cal_temp);
+		(unsigned int)priv->dsm_cal_temp);
 		regmap_write(priv->regmap_dsp, DSM_RDC_ROOM_TEMP,
-				(unsigned int)priv->dsm_cal_rdc);
-	}
+		(unsigned int)priv->dsm_cal_rdc);
+		dev_info(card->dev, "set rdc = %d, temperature = %d\n",
+					priv->dsm_cal_rdc, priv->dsm_cal_temp);
+	} else
+		dev_info(card->dev, "dsm works with default calibration\n");
 
-	return ret;
+	return 0;
 }
 #endif
 
@@ -682,10 +701,7 @@ static int pacific_external_amp(struct snd_soc_dapm_widget *w,
 		if (priv->external_amp)
 			priv->external_amp(1);
 #if defined(CONFIG_SND_SOC_MAXIM_DSM_CAL)
-		if (priv->dsm_cal_read_cnt == 0)
-			pacific_get_dsm_cal_info(card);
-		if (priv->dsm_cal_read_cnt == 1)
-			pacific_set_dsm_cal_info(card);
+		pacific_dsm_cal_apply(card);
 #endif
 		break;
 	case SND_SOC_DAPM_PRE_PMD:

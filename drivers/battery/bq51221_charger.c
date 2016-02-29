@@ -427,8 +427,6 @@ static int bq51221_chg_set_property(struct power_supply *psy,
 				val->intval == POWER_SUPPLY_HEALTH_OVERHEATLIMIT ||
 				val->intval == POWER_SUPPLY_HEALTH_COLD)
 				bq51221_set_end_power_transfer(charger->client, END_POWER_TRANSFER_CODE_OVER_TEMPERATURE);
-			else if(val->intval == POWER_SUPPLY_HEALTH_UNDERVOLTAGE)
-				bq51221_set_end_power_transfer(charger->client, END_POWER_TRANSFER_CODE_RECONFIGURE);
 			break;
 		case POWER_SUPPLY_PROP_ONLINE:
 			if(val->intval == POWER_SUPPLY_TYPE_WIRELESS) {

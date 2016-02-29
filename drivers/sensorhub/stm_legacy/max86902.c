@@ -393,6 +393,12 @@ static int max86900_hrm_enable(struct max86900_device_data *data)
 	data->ir_sum = 0;
 	data->r_sum = 0;
 
+	data->led_current = MAX86900C_DEFAULT_CURRENT;
+	data->led_current1 = MAX86902_DEFAULT_CURRENT1;
+	data->led_current2 = MAX86902_DEFAULT_CURRENT2;
+	data->led_current3 = MAX86902_DEFAULT_CURRENT3;
+	data->led_current4 = MAX86902_DEFAULT_CURRENT4;
+
 	mutex_lock(&data->activelock);
 
 	err = max86900_write_reg(data, MAX86900_INTERRUPT_ENABLE, 0x10);

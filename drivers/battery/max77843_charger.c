@@ -1702,7 +1702,7 @@ static void wpc_detect_work(struct work_struct *work)
 			psy_do_property("wireless", set,
 					POWER_SUPPLY_PROP_ONLINE, value);
 
-#if defined(CONFIG_WIRELESS_CHARGER_INBATTERY) && defined(CONFIG_WIRELESS_CHARGER_INBATTERY_CS100)
+#if 0
 			/* this code is for preventing reactivated wireless charger on outside of pad*/
 			value.intval = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
 			psy_do_property("bq51221-charger", set,
