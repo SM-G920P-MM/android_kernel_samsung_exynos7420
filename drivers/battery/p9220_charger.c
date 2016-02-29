@@ -68,6 +68,7 @@ u8 adc_cal = 0;
 
 extern int charger_muic_disable(int val);
 extern unsigned int lpcharge;
+extern void wireless_of_mst_hw_onoff(bool on);
 int p9220_get_firmware_version(struct p9220_charger_data *charger, int firm_mode);
 
 static int p9220_reg_read(struct i2c_client *client, u16 reg, u8 *val)
@@ -459,12 +460,14 @@ void p9220_send_eop(struct p9220_charger_data *charger, int healt_mode)
 		}
 		break;
 		case POWER_SUPPLY_HEALTH_UNDERVOLTAGE:
+#if 0
 			pr_info("%s ept-reconfigure \n", __func__);
 			ret = p9220_reg_write(charger->client, P9220_END_POWER_TRANSFER_REG, P9220_EPT_RECONFIG);
 			if(ret >= 0) {
 				p9220_set_cmd_reg(charger, P9220_CMD_SEND_EOP_MASK, P9220_CMD_SEND_EOP_MASK);
 				msleep(250);
 			}
+#endif
 		break;
 		default:
 		break;
@@ -661,13 +664,7 @@ void p9220_set_vrect_adjust(struct p9220_charger_data *charger, int set)
 void p9220_mis_align(struct p9220_charger_data *charger)
 {
 	pr_info("%s: Reset M0\n",__func__);
-	if(charger->pdata->cable_type == P9220_PAD_MODE_PMA)
-		p9220_reg_write(charger->client, 0x3040, 0x80); /*restart M0 */
-	else {
-		p9220_send_eop(charger, POWER_SUPPLY_HEALTH_UNDERVOLTAGE);
-		msleep(250);
-		p9220_reg_write(charger->client, 0x3040, 0x80); /*restart M0 */
-	}
+	p9220_reg_write(charger->client, 0x3040, 0x80); /*restart M0 */
 }
 
 int p9220_get_firmware_version(struct p9220_charger_data *charger, int firm_mode)
@@ -887,7 +884,7 @@ static int p9220_firmware_verify(struct p9220_charger_data *charger)
 static int p9220_reg_multi_write_verify(struct i2c_client *client, u16 reg, const u8 * val, int size)
 {
 	int ret = 0;
-	const int sendsz = 64;
+	const int sendsz = 16;
 	int cnt = 0;
 	int retry_cnt = 0;
 	unsigned char data[sendsz+2];
@@ -911,7 +908,7 @@ static int p9220_reg_multi_write_verify(struct i2c_client *client, u16 reg, cons
 		if (datacmp(val+cnt, rdata, sendsz)) {
 			pr_err("%s, data is not matched. retry(%d)\n", __func__, retry_cnt);
 			retry_cnt++;
-			if(retry_cnt > 5) {
+			if(retry_cnt > 4) {
 				pr_err("%s, data is not matched. write failed\n", __func__);
 				retry_cnt = 0;
 				return -1;
@@ -940,7 +937,7 @@ static int p9220_reg_multi_write_verify(struct i2c_client *client, u16 reg, cons
 		if (datacmp(val+cnt, rdata, size)) {
 			pr_err("%s, data is not matched. retry(%d)\n", __func__, retry_cnt);
 			retry_cnt++;
-			if(retry_cnt > 5) {
+			if(retry_cnt > 4) {
 				pr_err("%s, data is not matched. write failed\n", __func__);
 				retry_cnt = 0;
 				return -1;
@@ -1013,7 +1010,7 @@ static int PgmOTPwRAM(struct p9220_charger_data *charger, unsigned short OtpAddr
 					  const u8 * srcData, int srcOffs, int size)
 {
 	int i, j, cnt;
-
+	int block_len = 0;
 	u8 fw_major[2] = {0,};
 	u8 fw_minor[2] = {0,};
 
@@ -1048,7 +1045,14 @@ static int PgmOTPwRAM(struct p9220_charger_data *charger, unsigned short OtpAddr
 		u16 StartAddr = (u16)i;
 		u16 CheckSum = StartAddr;
 		u16 CodeLength = 128;
-		memcpy(sBuf + 8, srcData + i + srcOffs, 128);
+
+		block_len = (i + 128) > size ? size - i : 128;
+		if (block_len == 128) {
+			memcpy(sBuf + 8, srcData + i + srcOffs, 128);
+		} else {
+			memset(sBuf, 0, 136);
+			memcpy(sBuf + 8, srcData + i + srcOffs, block_len);
+		}
 
 		for (j = 127; j >= 0; j--)
 		{
@@ -1067,7 +1071,7 @@ static int PgmOTPwRAM(struct p9220_charger_data *charger, unsigned short OtpAddr
 		memcpy(sBuf+4, &CodeLength,2);
 		memcpy(sBuf+6, &CheckSum,2);
 
-		if (p9220_reg_multi_write(charger->client, 0x400, sBuf, CodeLength + 8) < 0)
+		if (p9220_reg_multi_write_verify(charger->client, 0x400, sBuf, CodeLength + 8) < 0)
 		{
 			pr_err("ERROR: on writing to OTP buffer");
 			return false;
@@ -1118,7 +1122,7 @@ static int PgmOTPwRAM(struct p9220_charger_data *charger, unsigned short OtpAddr
 
 static int p9220_runtime_sram_change(struct p9220_charger_data *charger)
 {
-	int i, ret;
+	int i = 0, ret = 0;
 	u8 reg;
 
 	pr_info("%s \n", __func__);
@@ -1183,6 +1187,8 @@ int p9220_firmware_update(struct p9220_charger_data *charger, int cmd)
 
 	switch(cmd) {
 		case SEC_WIRELESS_RX_SDCARD_MODE:
+		charger->pdata->otp_firmware_result = P9220_FW_RESULT_DOWNLOADING;
+		msleep(200);
 		charger_muic_disable(ENABLE);
 		disable_irq(charger->pdata->irq_wpc_int);
 		disable_irq(charger->pdata->irq_wpc_det);
@@ -1231,6 +1237,8 @@ int p9220_firmware_update(struct p9220_charger_data *charger, int cmd)
 		charger_muic_disable(DISABLE);
 		break;
 	case SEC_WIRELESS_RX_BUILT_IN_MODE:
+		charger->pdata->otp_firmware_result = P9220_FW_RESULT_DOWNLOADING;
+		msleep(200);
 		charger_muic_disable(ENABLE);
 		disable_irq(charger->pdata->irq_wpc_int);
 		disable_irq(charger->pdata->irq_wpc_det);
@@ -1263,6 +1271,8 @@ int p9220_firmware_update(struct p9220_charger_data *charger, int cmd)
 		wake_unlock(&charger->wpc_update_lock);
 		break;
 	case SEC_WIRELESS_TX_ON_MODE:
+		charger->pdata->tx_firmware_result = P9220_FW_RESULT_DOWNLOADING;
+		msleep(200);
 		charger_muic_disable(ENABLE);
 		dev_err(&charger->client->dev, "%s, built in sram mode on \n", __func__);
 		ret = request_firmware(&charger->firm_data_bin, P9220S_SRAM_FW_HEX_PATH, &charger->client->dev);
@@ -1294,6 +1304,7 @@ int p9220_firmware_update(struct p9220_charger_data *charger, int cmd)
 		wake_unlock(&charger->wpc_update_lock);
 		break;
 	case SEC_WIRELESS_TX_OFF_MODE:
+		charger->pdata->tx_firmware_result = P9220_FW_RESULT_DOWNLOADING;
 		charger->pdata->cable_type = P9220_PAD_MODE_NONE;
 		dev_err(&charger->client->dev, "%s, built in sram mode off \n", __func__);
 		charger->pdata->tx_status = SEC_TX_OFF;
@@ -1390,6 +1401,7 @@ static int p9220_chg_get_property(struct power_supply *psy,
 			break;
 		case POWER_SUPPLY_PROP_MANUFACTURER:
 			if (val->intval == SEC_WIRELESS_OTP_FIRM_RESULT) {
+				pr_info("%s otp firmware result = %d,\n",__func__, charger->pdata->otp_firmware_result);
 				val->intval = charger->pdata->otp_firmware_result;
 			} else if(val->intval == SEC_WIRELESS_IC_GRADE) {
 				val->intval = charger->pdata->wc_ic_grade;
@@ -1473,10 +1485,6 @@ static int p9220_chg_set_property(struct power_supply *psy,
 				pr_info("%s ept-ot \n", __func__);
 				p9220_send_eop(charger, val->intval);
 			}
-			else if(val->intval == POWER_SUPPLY_HEALTH_UNDERVOLTAGE) {
-				pr_info("%s ept-reconfigure \n", __func__);
-				p9220_send_eop(charger, val->intval);
-			}
 			break;
 		case POWER_SUPPLY_PROP_ONLINE:
 			if(val->intval == POWER_SUPPLY_TYPE_WIRELESS ||
@@ -1512,7 +1520,6 @@ static int p9220_chg_set_property(struct power_supply *psy,
 			}
 			break;
 		case POWER_SUPPLY_PROP_CHARGE_POWERED_OTG_CONTROL:
-			msleep(200);
 			p9220_firmware_update(charger, val->intval);
 			pr_info("%s rx result = %d, tx result = %d \n",__func__,
 					charger->pdata->otp_firmware_result,charger->pdata->tx_firmware_result);
@@ -1601,6 +1608,11 @@ static int p9220_chg_set_property(struct power_supply *psy,
 				pr_info("%s: Unknown Command(%d)\n",__func__, val->intval);
 			}
 			break;
+		case POWER_SUPPLY_PROP_MANUFACTURER:
+			charger->pdata->otp_firmware_result = val->intval;
+			pr_info("%s otp_firmware result initialize (%d)\n",__func__,
+					charger->pdata->otp_firmware_result);
+			break;
 		default:
 			return -EINVAL;
 	}
@@ -1656,6 +1668,10 @@ static void p9220_wpc_det_work(struct work_struct *work)
 	wc_w_state = gpio_get_value(charger->pdata->wpc_det);
 
 	if ((charger->wc_w_state == 0) && (wc_w_state == 1)) {
+		/* this code is only for Zero2, There is zinitix leakage . should turn on before charging on */
+		if(charger->pdata->on_mst_wa)
+			wireless_of_mst_hw_onoff(1);
+
 		charger->pdata->vout_status = P9220_VOUT_5V;
 
 		/* read firmware version */
@@ -1718,14 +1734,19 @@ static void p9220_wpc_det_work(struct work_struct *work)
 				POWER_SUPPLY_PROP_ONLINE, value);
 		pr_info("%s: wpc deactivated, set V_INT as PD\n",__func__);
 
-		if (p9220_get_adc(charger, P9220_ADC_VOUT) < 3000) /* Vout < 3000mV, run ept-reconfigure */
-				p9220_send_eop(charger, POWER_SUPPLY_HEALTH_UNDERVOLTAGE);
+		msleep(1000);
+
+		/* if vout <= 3000mV, restart M0 for misalign protect */ 
+		if (p9220_get_adc(charger, P9220_ADC_VOUT) <= 3000) {
+			pr_err("%s Restart M0, wireless detached! \n", __func__);
+			p9220_reg_write(charger->client, 0x3040, 0x80); /*restart M0 */
+		}
 
 		if(!lpcharge) {
 			value.intval = ENABLE;
 			psy_do_property("max77833-charger", set, POWER_SUPPLY_PROP_CHARGE_AICL_CONTROL, value);
 		}
-		msleep(1000);
+
 		value.intval = 0;
 		psy_do_property("max77833-charger", set, POWER_SUPPLY_PROP_CHARGE_COUNTER_SHADOW, value);
 		cancel_delayed_work(&charger->wpc_isr_work);
@@ -1734,6 +1755,10 @@ static void p9220_wpc_det_work(struct work_struct *work)
 			wake_unlock(&charger->wpc_opfq_lock);
 			cancel_delayed_work(&charger->wpc_opfq_work);
 		}
+
+		/* this code is only for Zero2, There is zinitix leakage . should turn on before charging on */
+		if(charger->pdata->on_mst_wa)
+			wireless_of_mst_hw_onoff(0);
 	}
 
 	pr_info("%s: w(%d to %d)\n", __func__,
@@ -1986,6 +2011,11 @@ static int p9220_chg_parse_dt(struct device *dev,
 			(unsigned int *)&pdata->hw_rev_changed);
 		if (ret)
 			pr_info("%s: this is under rev09 \n", __func__);
+
+		ret = of_property_read_u32(np, "battery,on_mst_wa",
+			(unsigned int *)&pdata->on_mst_wa);
+		if (ret)
+			pr_info("%s: this is not zero2 \n", __func__);
 
 		ret = of_property_read_u32(np, "battery,wpc_cv_call_vout",
 						&pdata->wpc_cv_call_vout);
@@ -2388,6 +2418,10 @@ static void p9220_charger_shutdown(struct i2c_client *client)
 		//p9220_set_vout(charger, P9220_VOUT_5V);
 		//pr_info("%s: Wireless Vout forced set to 5V\n", __func__);
 		p9220_set_vrect_adjust(charger, P9220_HEADROOM_1);
+
+		/* this code is only for Zero2, There is zinitix leakage . should turn on before charging on */
+		if(charger->pdata->on_mst_wa)
+			wireless_of_mst_hw_onoff(0);
 	}
 }
 

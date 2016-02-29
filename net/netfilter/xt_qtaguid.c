@@ -1189,19 +1189,14 @@ static void iface_stat_update_from_skb(const struct sk_buff *skb,
 	int bytes = skb->len;
 	int proto;
 
-	if (!skb->dev) {
-		MT_DEBUG("qtaguid[%d]: no skb->dev\n", par->hooknum);
-		el_dev = par->in ? : par->out;
-	} else {
-		const struct net_device *other_dev;
-		el_dev = skb->dev;
-		other_dev = par->in ? : par->out;
-		if (el_dev != other_dev) {
-			MT_DEBUG("qtaguid[%d]: skb->dev=%p %s vs "
-				 "par->(in/out)=%p %s\n",
-				 par->hooknum, el_dev, el_dev->name, other_dev,
-				 other_dev->name);
-		}
+	MT_DEBUG("qtaguid[%d]: no skb->dev\n", par->hooknum);
+	el_dev = par->in ? : par->out;
+
+	if (skb->dev && el_dev != skb->dev) {
+		MT_DEBUG("qtaguid[%d]: skb->dev=%p %s vs "
+			"par->(in/out)=%p %s\n",
+			par->hooknum, skb->dev, skb->dev->name, el_dev,
+			el_dev->name);
 	}
 
 	if (unlikely(!el_dev)) {
@@ -1290,11 +1285,12 @@ static void if_tag_stat_update(const char *ifname, uid_t uid,
 		"uid=%u sk=%p dir=%d proto=%d bytes=%d)\n",
 		 ifname, uid, sk, direction, proto, bytes);
 
-
+	spin_lock_bh(&iface_stat_list_lock);
 	iface_entry = get_iface_entry(ifname);
 	if (!iface_entry) {
 		pr_err_ratelimited("qtaguid: iface_stat: stat_update() "
 				   "%s not found\n", ifname);
+		spin_unlock_bh(&iface_stat_list_lock);
 		return;
 	}
 	/* It is ok to process data when an iface_entry is inactive */
@@ -1330,8 +1326,7 @@ static void if_tag_stat_update(const char *ifname, uid_t uid,
 		 * {0, uid_tag} will also get updated.
 		 */
 		tag_stat_update(tag_stat_entry, direction, proto, bytes);
-		spin_unlock_bh(&iface_entry->tag_stat_list_lock);
-		return;
+		goto unlock;
 	}
 
 	/* Loop over tag list under this interface for {0,uid_tag} */
@@ -1371,6 +1366,7 @@ static void if_tag_stat_update(const char *ifname, uid_t uid,
 	tag_stat_update(new_tag_stat, direction, proto, bytes);
 unlock:
 	spin_unlock_bh(&iface_entry->tag_stat_list_lock);
+	spin_unlock_bh(&iface_stat_list_lock);
 }
 
 static int iface_netdev_event_handler(struct notifier_block *nb,
@@ -1618,19 +1614,14 @@ static void account_for_uid(const struct sk_buff *skb,
 {
 	const struct net_device *el_dev;
 
-	if (!skb->dev) {
-		MT_DEBUG("qtaguid[%d]: no skb->dev\n", par->hooknum);
-		el_dev = par->in ? : par->out;
-	} else {
-		const struct net_device *other_dev;
-		el_dev = skb->dev;
-		other_dev = par->in ? : par->out;
-		if (el_dev != other_dev) {
-			MT_DEBUG("qtaguid[%d]: skb->dev=%p %s vs "
-				"par->(in/out)=%p %s\n",
-				par->hooknum, el_dev, el_dev->name, other_dev,
-				other_dev->name);
-		}
+	MT_DEBUG("qtaguid[%d]: no skb->dev\n", par->hooknum);
+	el_dev = par->in ? : par->out;
+
+	if (skb->dev && el_dev != skb->dev) {
+		MT_DEBUG("qtaguid[%d]: skb->dev=%p %s vs "
+			"par->(in/out)=%p %s\n",
+			par->hooknum, skb->dev, skb->dev->name, el_dev,
+			el_dev->name);
 	}
 
 	if (unlikely(!el_dev)) {

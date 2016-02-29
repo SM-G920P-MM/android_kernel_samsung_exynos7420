@@ -412,6 +412,7 @@ struct p9220_charger_platform_data {
 	int fod_data_check;
 	bool ic_on_mode;
 	int hw_rev_changed; /* this is only for noble/zero2 */
+	int on_mst_wa;		/* this is only for Zero2, There is zinitix leakage */
 	int otp_firmware_result;
 	int tx_firmware_result;
 	int wc_ic_grade;

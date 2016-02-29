@@ -7,8 +7,10 @@
 /dev/block/platform/15570000.ufs/by-name/EFS		/efs	ext4	noatime,nosuid,nodev,noauto_da_alloc,discard,data=ordered,errors=panic	wait,check
 # USERDATA
 /dev/block/platform/15570000.ufs/by-name/PERSISTENT     /persistent     emmc     defaults     defaults
+/dev/block/platform/15570000.ufs/by-name/CPEFS		/cpefs	ext4	rw,errors=panic,noload										wait,check
 
 # VOLD
+/dev/block/platform/15570000.ufs/by-name/HIDDEN                    /preload                    ext4    defaults    voldmanaged=preload:auto
 /devices/15400000.usb/15400000.dwc3/xhci-hcd.2.auto/usb*sda            auto                    vfat    default     voldmanaged=UsbDriveA:auto
 /devices/15400000.usb/15400000.dwc3/xhci-hcd.2.auto/usb*sdb            auto                    vfat    default     voldmanaged=UsbDriveB:auto
 /devices/15400000.usb/15400000.dwc3/xhci-hcd.2.auto/usb*sdc            auto                    vfat    default     voldmanaged=UsbDriveC:auto
