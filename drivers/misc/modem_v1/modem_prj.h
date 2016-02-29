@@ -32,6 +32,7 @@
 
 #include <linux/platform_data/modem_debug.h>
 #include <linux/platform_data/modem_v1.h>
+#include "modem_pktlog.h"
 
 #include <linux/mipi-lli.h>
 

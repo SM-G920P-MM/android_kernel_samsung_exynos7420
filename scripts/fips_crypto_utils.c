@@ -256,4 +256,3 @@ update_crypto_hmac (const char * vmlinux_path, const char * hmac_path, unsigned 
 
 	return 0;
 }
-

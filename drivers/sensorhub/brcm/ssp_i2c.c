@@ -41,7 +41,7 @@ int ssp_spi_async(struct ssp_data *data, struct ssp_msg *msg)
 	int status = 0;
 
 	if (msg->length)
-		return ssp_spi_sync(data, msg, 1000);
+		return ssp_spi_sync(data, msg, 2000);
 
 	status = do_transfer(data, msg, NULL, 0);
 
@@ -213,6 +213,9 @@ int send_instruction(struct ssp_data *data, u8 uInst,
 	int iRet = 0;
 	struct ssp_msg *msg;
 
+	u64 timestamp;
+	struct timespec ts;
+
 	if ((!(data->uSensorState & (1 << uSensorType)))
 		&& (uInst <= CHANGE_DELAY)) {
 		pr_err("[SSP]: %s - Bypass Inst Skip! - %u\n",
@@ -226,6 +229,14 @@ int send_instruction(struct ssp_data *data, u8 uInst,
 		break;
 	case ADD_SENSOR:
 		command = MSG2SSP_INST_BYPASS_SENSOR_ADD;
+		ts = ktime_to_timespec(ktime_get_boottime());
+		timestamp = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+
+		if (data->cameraGyroSyncMode && uSensorType == GYROSCOPE_SENSOR) {
+			data->lastTimestamp[uSensorType] = 0ULL;
+		} else {
+			data->lastTimestamp[uSensorType] = timestamp + 5000000ULL;
+		}
 		break;
 	case CHANGE_DELAY:
 		command = MSG2SSP_INST_CHANGE_DELAY;
@@ -281,6 +292,9 @@ int send_instruction_sync(struct ssp_data *data, u8 uInst,
 	char buffer[10] = { 0, };
 	struct ssp_msg *msg;
 
+	u64 timestamp;
+	struct timespec ts;
+
 	if ((!(data->uSensorState & (1 << uSensorType)))
 		&& (uInst <= CHANGE_DELAY)) {
 		pr_err("[SSP]: %s - Bypass Inst Skip! - %u\n",
@@ -294,6 +308,14 @@ int send_instruction_sync(struct ssp_data *data, u8 uInst,
 		break;
 	case ADD_SENSOR:
 		command = MSG2SSP_INST_BYPASS_SENSOR_ADD;
+		ts = ktime_to_timespec(ktime_get_boottime());
+		timestamp = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+
+		if (data->cameraGyroSyncMode && uSensorType == GYROSCOPE_SENSOR) {
+			data->lastTimestamp[uSensorType] = 0ULL;
+		} else {
+			data->lastTimestamp[uSensorType] = timestamp + 5000000ULL;
+		}
 		break;
 	case CHANGE_DELAY:
 		command = MSG2SSP_INST_CHANGE_DELAY;
@@ -466,6 +488,37 @@ int set_sensor_position(struct ssp_data *data)
 	return iRet;
 }
 
+#if defined (CONFIG_SENSORS_SSP_VLTE)
+int set_sensor_sub_position(struct ssp_data *data)
+{
+	int iRet = 0;
+
+	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	if (msg == NULL) {
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+		return -ENOMEM;
+	}
+	msg->cmd = MSG2SSP_AP_SUB_SENSOR_FORMATION;
+	msg->length = 1;
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = (char*) kzalloc(1, GFP_KERNEL);
+	msg->free_buffer = 1;
+
+	msg->buffer[0] = data->accel_sub_position;
+
+	iRet = ssp_spi_async(data, msg);
+
+	pr_info("[SSP] Sensor Sub Posision A : %u\n", data->accel_sub_position);
+
+	if (iRet != SUCCESS) {
+		pr_err("[SSP] %s -fail to set_sensor_sub_position %d\n", __func__, iRet);
+		iRet = ERROR;
+	}
+
+	return iRet;
+}
+#endif
+
 #ifdef CONFIG_SENSORS_MULTIPLE_GLASS_TYPE
 int set_glass_type(struct ssp_data *data)
 {
@@ -533,7 +586,7 @@ void set_proximity_threshold(struct ssp_data *data,
 
 	if (!(data->uSensorState & (1 << PROXIMITY_SENSOR))) {
 		pr_info("[SSP]: %s - Skip this function!!!"\
-			", proximity sensor is not connected(0x%x)\n",
+			", proximity sensor is not connected(0x%llx)\n",
 			__func__, data->uSensorState);
 		return;
 	}
@@ -629,10 +682,38 @@ void set_gesture_current(struct ssp_data *data, unsigned char uData1)
 	pr_info("[SSP]: Gesture Current Setting - %u\n", uData1);
 }
 
-unsigned int get_sensor_scanning_info(struct ssp_data *data) {
+int set_hall_threshold(struct ssp_data *data)
+{
+	int iRet = 0;
+
+	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	if (msg == NULL) {
+		pr_err("[SSP]: %s - failed to alloc memory for ssp_msg\n",
+			__func__);
+		return -ENOMEM;
+	}
+
+	msg->cmd = MSG2SSP_AP_SET_HALL_THRESHOLD;
+	msg->length = sizeof(data->hall_threshold);
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = kzalloc(sizeof(data->hall_threshold), GFP_KERNEL);
+	msg->free_buffer = 1;
+
+	memcpy(msg->buffer, data->hall_threshold, sizeof(data->hall_threshold));
+
+	iRet = ssp_spi_async(data, msg);
+	if (iRet != SUCCESS) {
+		pr_err("[SSP]: %s - fail to set_hall_threshold %d\n",
+			__func__, iRet);
+		iRet = ERROR;
+	}
+
+	return iRet;
+}
+
+u64 get_sensor_scanning_info(struct ssp_data *data) {
 	int iRet = 0, z = 0;
-	u32 result = 0;
-	char bin[SENSOR_MAX + 1];
+	u64 result = 0;
 
 	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 	if (msg == NULL) {
@@ -640,7 +721,7 @@ unsigned int get_sensor_scanning_info(struct ssp_data *data) {
 		return -ENOMEM;
 	}
 	msg->cmd = MSG2SSP_AP_SENSOR_SCANNING;
-	msg->length = 4;
+	msg->length = 8;
 	msg->options = AP2HUB_READ;
 	msg->buffer = (char*) &result;
 	msg->free_buffer = 0;
@@ -650,10 +731,11 @@ unsigned int get_sensor_scanning_info(struct ssp_data *data) {
 	if (iRet != SUCCESS)
 		pr_err("[SSP]: %s - i2c fail %d\n", __func__, iRet);
 
-	bin[SENSOR_MAX] = '\0';
+	data->sensor_state[SENSOR_MAX] = '\0';
 	for (z = 0; z < SENSOR_MAX; z++)
-		bin[SENSOR_MAX - 1 - z] = (result & (1 << z)) ? '1' : '0';
-	pr_err("[SSP]: state: %s\n", bin);
+		data->sensor_state[SENSOR_MAX - 1 - z]
+			= (result & (1 << z)) ? '1' : '0';
+	pr_err("[SSP]: state: %s\n", data->sensor_state);
 
 	return result;
 }
@@ -798,3 +880,42 @@ int get_time(struct ssp_data *data) {
 	return iRet;
 }
 
+void set_gyro_cal_lib_enable(struct ssp_data *data, bool bEnable)
+{
+	int iRet = 0;
+	u8 cmd;
+	struct ssp_msg *msg;
+
+	pr_info("[SSP] %s - enable %d(cur %d)\n", __func__, bEnable,data->gyro_lib_state);
+
+	if(bEnable)
+		cmd = SH_MSG2AP_GYRO_CALIBRATION_START;
+	else
+		cmd = SH_MSG2AP_GYRO_CALIBRATION_STOP;
+	
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	if (msg == NULL) {
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+		return;
+	}
+	msg->cmd = cmd;
+	msg->length = 1;
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = (char*) kzalloc(1, GFP_KERNEL);
+	msg->free_buffer = 1;
+
+	msg->buffer[0] = bEnable;
+
+	iRet = ssp_spi_async(data, msg);
+
+	if(iRet == SUCCESS)
+	{
+		if(bEnable)
+			data->gyro_lib_state = GYRO_CALIBRATION_STATE_REGISTERED;
+		else
+			data->gyro_lib_state = GYRO_CALIBRATION_STATE_DONE;
+	}
+	else
+		pr_err("[SSP] %s - gyro lib enable cmd fail\n", __func__);
+	
+}

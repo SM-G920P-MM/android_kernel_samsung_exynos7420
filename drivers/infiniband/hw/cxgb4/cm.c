@@ -2925,6 +2925,7 @@ static void build_cpl_pass_accept_req(struct sk_buff *skb, int stid , u8 tos)
 	tcp_parse_options(skb, &tmp_opt, NULL, 0, NULL);
 #else
 	tcp_parse_options(skb, &tmp_opt, 0, NULL);
+#endif
 
 	req = (struct cpl_pass_accept_req *)__skb_push(skb, sizeof(*req));
 	memset(req, 0, sizeof(*req));

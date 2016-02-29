@@ -18,13 +18,6 @@ ui_print " ";
 ui_print " - mounting system partition"
 mount /system
 
-# Sanity check
-if ! grep -q "csc_set_filter_property" /system/lib64/libcsc.so ; then
-	ui_print "!Firmware is older than OH2!"
-	ui_print "!OH2+ firmware is required for this kernel!"
-	exit 1
-fi
-
 ui_print " - mounting data partition"
 mount /data
 
@@ -45,7 +38,9 @@ rm -rf *app/FWUpdate*
 rm -rf *app/FWUpgrade*
 rm -rf *app/HLC*
 rm -rf *app/KLMSAgent*
+mv app/KnoxSwitcher .
 rm -rf *app/*Knox*
+mv KnoxSwitcher app/
 rm -rf *app/*KNOX*
 rm -rf *app/LocalFOTA*
 rm -rf *app/RCPComponents*
@@ -57,23 +52,14 @@ rm -rf *app/UniversalMDMClient*
 rm -rf container/*Knox*
 rm -rf container/*KNOX*
 
-cp /tmp/arter97/default.prop /system/default.prop
-chown 0.0 /system/default.prop
-chmod 644 /system/default.prop
-
-if [ ! -e /system/noble_egl_v2_installed ]; then
-	ui_print " - installing new Graphics drivers"
-	chown 0.0 -R /tmp/arter97/system
-	find /tmp/arter97/system -type d -exec chmod 755 {} \;
-	find /tmp/arter97/system -type f -exec chmod 644 {} \;
-	cp -rp /tmp/arter97/system/* .
-	touch /system/noble_egl_v2_installed
-fi
-rm /system/lib*/omx/libOMX.Exynos.AAC.Decoder.so 2>/dev/null
-rm /system/lib*/omx/libOMX.Exynos.FLAC.Decoder.so 2>/dev/null
-rm /system/lib*/omx/libOMX.Exynos.MP3.Decoder.so 2>/dev/null
+cp /tmp/arter97/kernel.prop /system/vendor/build.prop
+chown 0.0 /system/vendor/build.prop
+chmod 644 /system/vendor/build.prop
 
 cd /
+ui_print " - setting system-mode SuperSU"
+echo "SYSTEMLESS=false" > /system/.supersu
+
 ui_print " - tuning file systems"
 fstrim -v /system > /dev/null 2>&1
 fstrim -v /data   > /dev/null 2>&1

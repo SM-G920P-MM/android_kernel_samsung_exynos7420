@@ -77,7 +77,8 @@
 				(time < 500) ? time/100-1 :		\
 				(time < 3250) ? (time-500)/250+4 : 15)
 
-#define LEDBLNK_OFF(time)	((time < 500) ? 0x00 :			\
+#define LEDBLNK_OFF(time)	((time < 1) ? 0x00 :			\
+				(time < 500) ? 0x01 :			\
 				(time < 5000) ? time/500 :		\
 				(time < 8000) ? (time-5000)/1000+10 :	 \
 				(time < 12000) ? (time-8000)/2000+13 : 15)
@@ -88,7 +89,16 @@ static u8 led_dynamic_current = 0x14;
 static u8 normal_powermode_current = 0x14;
 static u8 low_powermode_current = 0x05;
 
+/*
+        [ device_type ]
+          Zero   : 0
+          ZeroF  : 1
+          Noble  : 2
+          Zero2  : 3
+          V      : 4
+*/
 static unsigned int device_type = 0;
+
 static unsigned int brightness_ratio_r = 100;
 static unsigned int brightness_ratio_g = 100;
 static unsigned int brightness_ratio_b = 100;
@@ -177,13 +187,6 @@ static void max77833_rgb_set(struct led_classdev *led_cdev,
 				MAX77833_RGBLED_REG_LED0BRT + n, brightness);
 		if (IS_ERR_VALUE(ret)) {
 			dev_err(dev, "can't write LEDxBRT : %d\n", ret);
-			return;
-		}
-		/* Flash ON */
-		ret = max77833_update_reg(max77833_rgb->i2c,
-				MAX77833_RGBLED_REG_LEDEN, 0x55, 3 << (2*n));
-		if (IS_ERR_VALUE(ret)) {
-			dev_err(dev, "can't write FLASH_EN : %d\n", ret);
 			return;
 		}
 	}
@@ -394,10 +397,8 @@ static struct max77833_rgb_platform_data
 	}
 	pr_info("leds-max77833-rgb: %s, device_type = %x\n", __func__, device_type);
 
-	/* ZERO */
+	/* ZERO - ZERO don't use CL33 */
 	if(device_type == 0) {
-		pr_info("here0\n");
-
 		switch(octa_color) {
 		case 0:
 			strcpy(octa, "_bk");
@@ -418,10 +419,8 @@ static struct max77833_rgb_platform_data
 			break;
 		}
 	}
-	/* ZEROF */
+	/* ZEROF - ZEROF don't use CL33 */
 	else if(device_type == 1) {
-		pr_info("here1\n");
-
 		switch(octa_color) {
 		case 0:
 			strcpy(octa, "_bk");
@@ -437,6 +436,26 @@ static struct max77833_rgb_platform_data
 			break;
 		case 4:
 			strcpy(octa, "_rd");
+			break;
+		default:
+			break;
+		}
+	}
+	/* NOBLE, ZEN */
+	else if(device_type == 2 || device_type == 3) {
+
+		switch(octa_color) {
+		case 0:
+			strcpy(octa, "_bk");
+			break;
+		case 1:
+			strcpy(octa, "_wh");
+			break;
+		case 2:
+			strcpy(octa, "_gd");
+			break;
+		case 3:
+			strcpy(octa, "_sv");
 			break;
 		default:
 			break;
@@ -626,6 +645,7 @@ static ssize_t store_max77833_rgb_blink(struct device *dev,
 	u8 led_r_brightness = 0;
 	u8 led_g_brightness = 0;
 	u8 led_b_brightness = 0;
+	u8 led_en = 0;
 	unsigned int led_total_br = 0;
 	unsigned int led_max_br = 0;
 	int ret;
@@ -719,17 +739,24 @@ static ssize_t store_max77833_rgb_blink(struct device *dev,
 			}
 		}
 	}
+
 	if (led_r_brightness) {
-		max77833_rgb_set_state(&max77833_rgb->led[RED], led_r_brightness, LED_BLINK);
+		led_en |= (LED_BLINK << (2 * RED));
+		max77833_rgb_set_state(&max77833_rgb->led[RED], led_r_brightness, LED_DISABLE);
 	}
 	if (led_g_brightness) {
-		max77833_rgb_set_state(&max77833_rgb->led[GREEN], led_g_brightness, LED_BLINK);
+		led_en |= (LED_BLINK << (2 * GREEN));
+		max77833_rgb_set_state(&max77833_rgb->led[GREEN], led_g_brightness, LED_DISABLE);
 	}
 	if (led_b_brightness) {
-		max77833_rgb_set_state(&max77833_rgb->led[BLUE], led_b_brightness, LED_BLINK);
+		led_en |= (LED_BLINK << (2 * BLUE));
+		max77833_rgb_set_state(&max77833_rgb->led[BLUE], led_b_brightness, LED_DISABLE);
 	}
-	/*Set LED blink mode*/
+
 	max77833_rgb_blink(dev, delay_on_time, delay_off_time);
+	max77833_update_reg(max77833_rgb->i2c,
+		MAX77833_RGBLED_REG_LEDEN, led_en,
+		(0x3 << (2 * RED)) | (0x3 << (2 * GREEN)) | (0x3 << (2 * BLUE)));
 
 	pr_info("leds-max77833-rgb: %s, delay_on_time= %x, delay_off_time= %x\n", __func__, delay_on_time, delay_off_time);
 	dev_dbg(dev, "led_blink is called, Color:0x%X Brightness:%i\n",

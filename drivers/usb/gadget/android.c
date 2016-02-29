@@ -32,6 +32,7 @@
 
 #include "f_fs.c"
 #include "f_audio_source.c"
+#include "f_midi.c"
 #include "f_mass_storage.c"
 #include "f_adb.c"
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_MTP
@@ -59,6 +60,12 @@ static int composite_string_index;
 /* Default vendor and product IDs, overridden by userspace */
 #define VENDOR_ID		0x18D1
 #define PRODUCT_ID		0x0001
+
+/* f_midi configuration */
+#define MIDI_INPUT_PORTS    1
+#define MIDI_OUTPUT_PORTS   1
+#define MIDI_BUFFER_SIZE    256
+#define MIDI_QUEUE_LENGTH   32
 
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 /* DM_PORT NUM : /dev/ttyGS* port number */
@@ -114,16 +121,12 @@ struct android_dev {
 	int usb_lock;
 #endif
 	char ffs_aliases[256];
-	bool hotplug;
-	bool is_accessary;
 };
 
 static struct class *android_class;
 static struct android_dev *_android_dev;
 static int android_bind_config(struct usb_configuration *c);
 static void android_unbind_config(struct usb_configuration *c);
-extern void exynos_dm_hotplug_enable(void);
-extern void exynos_dm_hotplug_disable(void);
 
 /* string IDs are assigned dynamically */
 #define STRING_MANUFACTURER_IDX		0
@@ -219,27 +222,7 @@ static void android_work(struct work_struct *data)
 		kobject_uevent_env(&dev->dev->kobj, KOBJ_CHANGE, uevent_envp);
 		printk(KERN_DEBUG "usb: %s sent uevent %s\n",
 			 __func__, uevent_envp[0]);
-
-		if ( dev->is_accessary && !dev->hotplug)
-		{		
-			if(cdev->config && (dev->connected == dev->sw_connected))
-			{
-				dev->hotplug = true;	
-				printk(KERN_DEBUG "usb: %s exynos_dm_hotplug_disable\n", __func__);
-				exynos_dm_hotplug_disable();
-			}
-		}
-
-		if (dev->hotplug)
-		{
-			if(!dev->connected)
-			{
-				dev->hotplug = false;	
-				printk(KERN_DEBUG "usb: %s exynos_dm_hotplug_enable\n", __func__);
-				exynos_dm_hotplug_enable();
-			}
-		}
-		} else {
+	} else {
 		printk(KERN_DEBUG "usb: %s did not send uevent (%d %d %p)\n",
 		 __func__, dev->connected, dev->sw_connected, cdev->config);
 	}
@@ -1546,6 +1529,61 @@ static struct android_usb_function audio_source_function = {
 	.attributes	= audio_source_function_attributes,
 };
 
+static int midi_function_init(struct android_usb_function *f,
+					struct usb_composite_dev *cdev)
+{
+	struct midi_alsa_config *config;
+
+	config = kzalloc(sizeof(struct midi_alsa_config), GFP_KERNEL);
+	f->config = config;
+	if (!config)
+		return -ENOMEM;
+	config->card = -1;
+	config->device = -1;
+	return f_midi_setup();
+}
+
+static void midi_function_cleanup(struct android_usb_function *f)
+{
+	f_midi_cleanup();
+	kfree(f->config);
+}
+
+static int midi_function_bind_config(struct android_usb_function *f,
+						struct usb_configuration *c)
+{
+	struct midi_alsa_config *config = f->config;
+
+	return f_midi_bind_config(c, SNDRV_DEFAULT_IDX1, SNDRV_DEFAULT_STR1,
+			MIDI_INPUT_PORTS, MIDI_OUTPUT_PORTS, MIDI_BUFFER_SIZE,
+			MIDI_QUEUE_LENGTH, config);
+}
+
+static ssize_t midi_alsa_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct android_usb_function *f = dev_get_drvdata(dev);
+	struct midi_alsa_config *config = f->config;
+
+	/* print ALSA card and device numbers */
+	return sprintf(buf, "%d %d\n", config->card, config->device);
+}
+
+static DEVICE_ATTR(alsa, S_IRUGO, midi_alsa_show, NULL);
+
+static struct device_attribute *midi_function_attributes[] = {
+	&dev_attr_alsa,
+	NULL
+};
+
+static struct android_usb_function midi_function = {
+	.name		= "midi",
+	.init		= midi_function_init,
+	.cleanup	= midi_function_cleanup,
+	.bind_config	= midi_function_bind_config,
+	.attributes	= midi_function_attributes,
+};
+
 static struct android_usb_function *supported_functions[] = {
 	&ffs_function,
 	&adb_function,
@@ -1567,6 +1605,7 @@ static struct android_usb_function *supported_functions[] = {
 #ifdef CONFIG_USB_QCOM_MDM_BRIDGE
 	&qacm_function,
 #endif
+	&midi_function,
 	NULL
 };
 
@@ -1722,7 +1761,6 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 	g_rndis = 0;
-	dev->is_accessary = false;
 #endif
 
 	mutex_lock(&dev->mutex);
@@ -1790,10 +1828,6 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 
 			if (!strcmp(name,"rndis")) {
 				g_rndis = 1;
-			}
-			
-			if (!strcmp(name,"accessory")) {
-				dev->is_accessary = true;
 			}
 
 #endif
@@ -2239,7 +2273,6 @@ static void android_disconnect(struct usb_composite_dev *cdev)
 		printk(KERN_DEBUG"usb: %s mute_switch con(%d) sw(%d)\n",
 			 __func__, dev->connected, dev->sw_connected);
 	} else {
-		set_ncm_ready(false);
 		if (cdev->force_disconnect) {
 			dev->sw_connected = 1;
 			printk(KERN_DEBUG"usb: %s force_disconnect\n",
@@ -2306,7 +2339,6 @@ static int __init init(void)
 	}
 
 	dev->disable_depth = 1;
-	dev->hotplug = false;
 	dev->functions = supported_functions;
 	INIT_LIST_HEAD(&dev->enabled_functions);
 	INIT_WORK(&dev->work, android_work);
