@@ -1822,7 +1822,7 @@ static int esa_mmap(struct file *filep, struct vm_area_struct *vmarea)
 	unsigned long len = vmarea->vm_end - vmarea->vm_start;
 	int ret = 0;
 
-	esa_err("%s: start=0x%p, size=%ld, offset=%ld, phys=0x%llX",
+	esa_info("%s: start=0x%p, size=%ld, offset=%ld, phys=0x%llX",
 			__func__,
 			(void *)vmarea->vm_start, len, vmarea->vm_pgoff,
 			(u64)si.fwarea_pa[1]);
@@ -1838,7 +1838,7 @@ static int esa_mmap(struct file *filep, struct vm_area_struct *vmarea)
 	ret = (int)remap_pfn_range(vmarea, vmarea->vm_start,
 			pfn, len, pgprot_noncached(vmarea->vm_page_prot));
 
-	esa_err("%s: ret = 0x%x\n", __func__, ret);
+	esa_info("%s: ret = 0x%x\n", __func__, ret);
 	return ret;
 }
 

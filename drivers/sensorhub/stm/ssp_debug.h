@@ -25,7 +25,7 @@
 
 #define SSP_DEBUG_TIMER_SEC	(10 * HZ)
 #define LIMIT_RESET_CNT		20
-#define LIMIT_TIMEOUT_CNT	3
+#define LIMIT_TIMEOUT_CNT	2
 #define DUMP_FILE_PATH		"/data/log/MCU_DUMP"
 #define DEBUG_DUMP_FILE_PATH	"/data/log/SensorHubDump"
 #define DEBUG_DUMP_DATA_COMPLETE 0xDD
@@ -42,5 +42,6 @@ void enable_debug_timer(struct ssp_data *data);
 void disable_debug_timer(struct ssp_data *data);
 int initialize_debug_timer(struct ssp_data *data);
 int debug_crash_dump(struct ssp_data *data, char *pchRcvDataFrame, int iLength);
+void print_dataframe(struct ssp_data *data, char *dataframe, int frame_len);
 
 #endif

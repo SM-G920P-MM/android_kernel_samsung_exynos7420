@@ -47,7 +47,7 @@
 #define MAX86906_DEFAULT_CURRENT	0x0F
 
 #define MAX86902_DEFAULT_CURRENT1	0x00 //RED
-#define MAX86902_DEFAULT_CURRENT2	0x60 //IR
+#define MAX86902_DEFAULT_CURRENT2	0xFF //IR
 #define MAX86902_DEFAULT_CURRENT3	0x60 //NONE
 #define MAX86902_DEFAULT_CURRENT4	0x60 //Violet
 
@@ -60,6 +60,7 @@
 #define CHIP_NAME				"MAX86902"
 #define MAX86900_CHIP_NAME		"MAX86900"
 #define MAX86902_CHIP_NAME		"MAX86902"
+#define MAX86906_CHIP_NAME		"MAX86906"
 #define VENDOR					"MAXIM"
 #define HRM_LDO_ON	1
 #define HRM_LDO_OFF	0
@@ -182,9 +183,11 @@ static int max86900_regulator_onoff(struct max86900_device_data *data, int onoff
 		return 0;
 	}
 
+	mutex_lock(&data->regulatorlock);
 	regulator_vdd_1p8 = regulator_get(NULL, data->vdd_1p8);
 	if (IS_ERR(regulator_vdd_1p8) || regulator_vdd_1p8 == NULL) {
 		pr_err("%s - vdd_1p8 regulator_get fail\n", __func__);
+		mutex_unlock(&data->regulatorlock);
 		return -ENODEV;
 	}
 
@@ -192,6 +195,7 @@ static int max86900_regulator_onoff(struct max86900_device_data *data, int onoff
 	if (IS_ERR(regulator_led_3p3) || regulator_led_3p3 == NULL) {
 		pr_err("%s - vdd_3p3 regulator_get fail\n", __func__);
 		regulator_put(regulator_vdd_1p8);
+		mutex_unlock(&data->regulatorlock);
 		return -ENODEV;
 	}
 	pr_info("%s - onoff = %d\n", __func__, onoff);
@@ -244,6 +248,8 @@ static int max86900_regulator_onoff(struct max86900_device_data *data, int onoff
 	done:
 	regulator_put(regulator_led_3p3);
 	regulator_put(regulator_vdd_1p8);
+
+	mutex_unlock(&data->regulatorlock);
 
 	return rc;
 }
@@ -1723,7 +1729,9 @@ static int max86900_hrm_read_data(struct max86900_device_data *device, u16 *data
 	} else {
 		device->ir_sum += data[0];
 		device->r_sum += data[1];
-		if ((device->sample_cnt % MAX86900_SAMPLE_RATE) == MAX86900_SAMPLE_RATE - 1) {
+		if (device->is_alc_off) {
+			ret = 0;
+		} else if ((device->sample_cnt % MAX86900_SAMPLE_RATE) == MAX86900_SAMPLE_RATE - 1) {
 			data[0] = device->ir_sum / MAX86900_SAMPLE_RATE;
 			data[1] = device->r_sum / MAX86900_SAMPLE_RATE;
 			device->ir_sum = 0;
@@ -1796,7 +1804,9 @@ static int max86902_hrm_read_data(struct max86900_device_data *device, int *data
 			device->led_sum[i] += data[i];
 #endif
 
-		if ((device->sample_cnt % MAX86902_SAMPLE_RATE) == MAX86902_SAMPLE_RATE - 1) {
+		if (device->is_alc_off) {
+			ret = 0;
+		} else if ((device->sample_cnt % MAX86902_SAMPLE_RATE) == MAX86902_SAMPLE_RATE - 1) {
 #ifndef CONFIG_SENSORS_MAX_NOTCHFILTER
 			for (i = 0; i < MAX_LED_NUM; i++) {
 				data[i] = device->led_sum[i] / MAX86902_SAMPLE_RATE;
@@ -2229,6 +2239,7 @@ void max86900_hrm_mode_enable(struct max86900_device_data *data, int onoff)
 				__func__, err);
 
 		atomic_set(&data->hrm_is_enable, 0);
+		data->is_alc_off = 0;
 	}
 	pr_info("%s - part_type = %u, onoff = %d\n",
 		__func__, data->part_type, onoff);
@@ -2262,6 +2273,7 @@ void max86902_hrm_mode_enable(struct max86900_device_data *data, int onoff)
 				__func__, err);
 
 		atomic_set(&data->hrm_is_enable, 0);
+		data->is_alc_off = 0;
 	}
 	pr_info("%s - part_type = %u, onoff = %d\n",
 		__func__, data->part_type, onoff);
@@ -2378,6 +2390,7 @@ static ssize_t max86900_hrm_enable_store(struct device *dev,
 			max86902_hrm_mode_enable(data, new_value);
 		}
 	}
+	pr_info("%s - enable done en:%d\n", __func__, new_value);
 
 	return count;
 }
@@ -2730,6 +2743,7 @@ static int max86900_hrm_eol_test_enable(struct max86900_device_data *data)
 	if (err != 0) {
 		pr_err("%s - error initializing MAX86900_SPO2_CONFIGURATION!\n",
 			__func__);
+		mutex_unlock(&data->activelock);
 		return -EIO;
 	}
 
@@ -3299,8 +3313,10 @@ static ssize_t max86900_hrm_name_show(struct device *dev,
 {
 	struct max86900_device_data *data = dev_get_drvdata(dev);
 
-	if (data->part_type < PART_TYPE_MAX86902A)
+	if (data->part_type < PART_TYPE_MAX86906)
 		return snprintf(buf, PAGE_SIZE, "%s\n", MAX86900_CHIP_NAME);
+	else if (data->part_type < PART_TYPE_MAX86902A)
+		return snprintf(buf, PAGE_SIZE, "%s\n", MAX86906_CHIP_NAME);
 	else
 		return snprintf(buf, PAGE_SIZE, "%s\n", MAX86902_CHIP_NAME);
 }
@@ -3806,20 +3822,15 @@ static ssize_t max86900_hrm_flush_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct max86900_device_data *data = dev_get_drvdata(dev);
+	int ret = 0;
 	u8 handle = 0;
 
-	if (sysfs_streq(buf, "17")) /* ID_SAM_HRM */
-		handle = 17;
-	else if (sysfs_streq(buf, "18")) /* ID_AOSP_HRM */
-		handle = 18;
-	else if (sysfs_streq(buf, "19")) /* ID_HRM_RAW */
-		handle = 19;
-	else if (sysfs_streq(buf, "20")) /* ID_HRM_ALC */
-		handle = 20;
-	else {
-		pr_info("%s: invalid value %d\n", __func__, *buf);
-		return -EINVAL;
+	ret = kstrtou8(buf, 10, &handle);
+	if (ret < 0) {
+		pr_err("%s - kstrtou8 failed.(%d)\n", __func__, ret);
+		return ret;
 	}
+	pr_info("%s - handle = %d\n", __func__, handle);
 
 	input_report_rel(data->hrm_input_dev, REL_MISC, handle);
 	return size;
@@ -3833,7 +3844,7 @@ static ssize_t max86900_hrm_threshold_store(struct device *dev,
 
 	iErr = kstrtoint(buf, 10, &data->hrm_threshold);
 	if (iErr < 0) {
-		pr_err("[SSP]: %s - kstrtoint failed.(%d)\n", __func__, iErr);
+		pr_err("%s - kstrtoint failed.(%d)\n", __func__, iErr);
 		return iErr;
 	}
 
@@ -3874,6 +3885,13 @@ static ssize_t max86900_hrm_alc_enable_store(struct device *dev,
 
 	if (data->part_type < PART_TYPE_MAX86902A) { //86900
 		if (new_value) { //alc on
+			/* change frequency of interrupt 400hz */
+			err = max86900_write_reg(data, MAX86900_SPO2_CONFIGURATION, 0x51);
+			if (err != 0) {
+				pr_err("%s - error initializing MAX86900_SPO2_CONFIGURATION!\n",
+					__func__);
+				return -EIO;
+			}
 			err = max86900_write_reg(data, 0xFF, 0x54);
 			if (err != 0) {
 				pr_err("%s - error initializing MAX86900_MODE_TEST0!\n",
@@ -3916,7 +3934,15 @@ static ssize_t max86900_hrm_alc_enable_store(struct device *dev,
 					__func__);
 				return -EIO;
 			}
+			data->is_alc_off = 0;
 		} else { //alc off
+			/* change frequency of interrupt 50hz for alc*/
+			err = max86900_write_reg(data, MAX86900_SPO2_CONFIGURATION, 0x43);
+			if (err != 0) {
+				pr_err("%s - error initializing MAX86900_SPO2_CONFIGURATION!\n",
+					__func__);
+				return -EIO;
+			}
 			err = max86900_write_reg(data, 0xFF, 0x54);
 			if (err != 0) {
 				pr_err("%s - error initializing MAX86900_MODE_TEST0!\n",
@@ -3959,9 +3985,18 @@ static ssize_t max86900_hrm_alc_enable_store(struct device *dev,
 					__func__);
 				return -EIO;
 			}
+			data->is_alc_off = 1;
 		}
 	} else {//86902
 		if (new_value) { //alc on
+			/* change frequency of interrupt 400hz*/
+			err = max86900_write_reg(data, MAX86902_SPO2_CONFIGURATION,
+					0x0E | (0x03 << MAX86902_SPO2_ADC_RGE_OFFSET));
+			if (err != 0) {
+				pr_err("%s - error initializing MAX86902_SPO2_CONFIGURATION!\n",
+					__func__);
+				return -EIO;
+			}
 			err = max86900_write_reg(data, 0xFF, 0x54);
 			if (err != 0) {
 				pr_err("%s - error initializing MAX86900_MODE_TEST0!\n",
@@ -4031,7 +4066,16 @@ static ssize_t max86900_hrm_alc_enable_store(struct device *dev,
 					__func__);
 				return -EIO;
 			}
+			data->is_alc_off = 0;
 		} else { //alc off
+			/* change frequency of interrupt 50hz for alc*/
+			err = max86900_write_reg(data, MAX86902_SPO2_CONFIGURATION,
+					0x02 | (0x03 << MAX86902_SPO2_ADC_RGE_OFFSET));
+			if (err != 0) {
+				pr_err("%s - error initializing MAX86902_SPO2_CONFIGURATION!\n",
+					__func__);
+				return -EIO;
+			}
 			err = max86900_write_reg(data, 0xFF, 0x54);
 			if (err != 0) {
 				pr_err("%s - error initializing MAX86900_MODE_TEST0!\n",
@@ -4101,6 +4145,7 @@ static ssize_t max86900_hrm_alc_enable_store(struct device *dev,
 					__func__);
 				return -EIO;
 			}
+			data->is_alc_off = 1;
 		}
 	}
 
@@ -4180,8 +4225,10 @@ static ssize_t max86900_hrmled_name_show(struct device *dev,
 {
 	struct max86900_device_data *data = dev_get_drvdata(dev);
 
-	if (data->part_type < PART_TYPE_MAX86902A)
+	if (data->part_type < PART_TYPE_MAX86906)
 		return snprintf(buf, PAGE_SIZE, "%s\n", MAX86900_CHIP_NAME);
+	else if (data->part_type < PART_TYPE_MAX86902A)
+		return snprintf(buf, PAGE_SIZE, "%s\n", MAX86906_CHIP_NAME);
 	else
 		return snprintf(buf, PAGE_SIZE, "%s\n", MAX86902_CHIP_NAME);
 }
@@ -4196,20 +4243,15 @@ static ssize_t max86900_hrmled_flush_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct max86900_device_data *data = dev_get_drvdata(dev);
+	int ret = 0;
 	u8 handle = 0;
 
-	if (sysfs_streq(buf, "21")) /* HRM LED IR */
-		handle = 21;
-	else if (sysfs_streq(buf, "22")) /* HRM LED RED */
-		handle = 22;
-	else if (sysfs_streq(buf, "23")) /* HRM LED GREEN */
-		handle = 23;
-	else if (sysfs_streq(buf, "24")) /* HRM LED VIOLET */
-		handle = 24;
-	else {
-		pr_info("%s: invalid value %d\n", __func__, *buf);
-		return -EINVAL;
+	ret = kstrtou8(buf, 10, &handle);
+	if (ret < 0) {
+		pr_err("%s - kstrtou8 failed.(%d)\n", __func__, ret);
+		return ret;
 	}
+	pr_info("%s - handle = %d\n", __func__, handle);
 
 	input_report_rel(data->hrmled_input_dev, REL_MISC, handle);
 	return size;
@@ -4378,16 +4420,17 @@ static ssize_t max86900_uv_flush_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct max86900_device_data *data = dev_get_drvdata(dev);
+	int ret = 0;
 	u8 handle = 0;
 
-	if (sysfs_streq(buf, "25")) /* ID_UV */
-		handle = 25;
-	else {
-		pr_info("%s: invalid value %d\n", __func__, *buf);
-		return -EINVAL;
+	ret = kstrtou8(buf, 10, &handle);
+	if (ret < 0) {
+		pr_err("%s - kstrtou8 failed.(%d)\n", __func__, ret);
+		return ret;
 	}
+	pr_info("%s - handle = %d\n", __func__, handle);
 
-	input_report_rel(data->hrm_input_dev, REL_MISC, handle);
+	input_report_rel(data->uv_input_dev, REL_MISC, handle);
 	return size;
 }
 
@@ -4569,6 +4612,20 @@ irqreturn_t max86900_irq_handler(int irq, void *device)
 		return -EIO;
 	}
 #endif
+
+	if (data->is_alc_off) {
+		if ((data->sample_cnt % 1000) == 1)
+			pr_info("%s - power save mode until next irq in ALC mode!\n", __func__);
+
+		err = max86900_write_reg(data, MAX86900_MODE_CONFIGURATION, 0x8B);
+		if (err != 0) {
+			pr_err("%s - error MAX86900_MODE_CONFIGURATION!\n",
+				__func__);
+			return -EIO;
+		}
+		schedule_delayed_work(&data->ps_mode_queue, msecs_to_jiffies(15));
+	}
+
 	return IRQ_HANDLED;
 }
 
@@ -4646,6 +4703,33 @@ static void max86900_reenable_set(struct work_struct *w)
 			max86902_uv_eol_test_onoff(data, 1);
 		}
 	}
+}
+
+static void max86900_power_save_mode(struct work_struct *w)
+{
+	int err;
+	struct delayed_work *work_queue;
+	struct max86900_device_data *data;
+
+	work_queue = container_of(w, struct delayed_work, work);
+	data = container_of(work_queue,
+		struct max86900_device_data, ps_mode_queue);
+
+	if ((data->sample_cnt % 1000) == 1)
+		pr_info("%s - start.\n", __func__);
+
+	mutex_lock(&data->regulatorlock);
+	if (data->regulator_is_enable) {
+		if (data->part_type <= PART_TYPE_MAX86906) {
+			err = max86900_write_reg(data,
+				MAX86900_MODE_CONFIGURATION, 0x0B);
+			if (err != 0) {
+				pr_err("%s - error MAX86900_MODE_CONFIGURATION!\n",
+					__func__);
+			}
+		}
+	}
+	mutex_unlock(&data->regulatorlock);
 }
 
 static int max86900_parse_dt(struct max86900_device_data *data,
@@ -4770,6 +4854,7 @@ int max86900_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	mutex_init(&data->i2clock);
 	mutex_init(&data->activelock);
+	mutex_init(&data->regulatorlock);
 	data->irq_state = 0;
 	data->hr_range = 0;
 	data->skip_i2c_msleep = 1;
@@ -4986,6 +5071,7 @@ int max86900_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	data->uv_input_dev->name = MODULE_NAME_UV;
 	input_set_capability(data->uv_input_dev, EV_REL, REL_X);
 	input_set_capability(data->uv_input_dev, EV_REL, REL_Y);
+	input_set_capability(data->uv_input_dev, EV_REL, REL_MISC);
 
 	err = input_register_device(data->uv_input_dev);
 	if (err < 0) {
@@ -5025,10 +5111,12 @@ int max86900_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	INIT_DELAYED_WORK(&data->uv_sr_work_queue, uv_sr_set);
 	INIT_DELAYED_WORK(&data->reenable_work_queue, max86900_reenable_set);
+	INIT_DELAYED_WORK(&data->ps_mode_queue, max86900_power_save_mode);
 	data->reenable_set = MAX86902_REENABLE_OFF;
 	data->reenable_cnt = 0;
 	data->eol_test_is_enable = 0;
 	data->uv_eol_test_is_enable = 0;
+	data->is_alc_off = 0;
 
 	/* Init Device */
 	err = max86900_init_device(data);
@@ -5084,6 +5172,7 @@ err_setup_gpio:
 err_of_node:
 	mutex_destroy(&data->i2clock);
 	mutex_destroy(&data->activelock);
+	mutex_destroy(&data->regulatorlock);
 	kfree(data);
 	pr_err("%s failed\n", __func__);
 done:

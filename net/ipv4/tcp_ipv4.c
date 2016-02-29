@@ -1172,7 +1172,8 @@ int tcp_md5_do_add(struct sock *sk, const union tcp_md5_addr *addr,
 	}
 
 	md5sig = rcu_dereference_protected(tp->md5sig_info,
-					   sock_owned_by_user(sk));
+					   sock_owned_by_user(sk) ||
+					   lockdep_is_held(&sk->sk_lock.slock));
 	if (!md5sig) {
 		md5sig = kmalloc(sizeof(*md5sig), gfp);
 		if (!md5sig)
@@ -3263,6 +3264,7 @@ struct proto tcp_prot = {
 #ifdef CONFIG_MPTCP
 	.clear_sk		= tcp_v4_clear_sk,
 #endif
+	.diag_destroy		= tcp_abort,
 };
 EXPORT_SYMBOL(tcp_prot);
 

@@ -68,6 +68,9 @@ obj-$(CONFIG_FM_RADIO)		+= samsung/
 # Secure OS Mobicore Interface
 obj-$(CONFIG_MOBICORE_DRIVER)  += tzic64.o
 
+# BlowFish
+obj-$(CONFIG_TZDEV)		+= tzdev/
+
 ifeq ($(TIMA_ENABLED),1)
 obj-$(CONFIG_TIMA_LOG)		+= tima_debug_log.o
 endif

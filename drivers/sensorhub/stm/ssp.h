@@ -36,6 +36,9 @@
 #include <linux/sched.h>
 #include <linux/spi/spi.h>
 #include <linux/battery/sec_battery.h>
+// memory scraps issue. HIFI batch
+#include <linux/vmalloc.h>
+
 #include "../../staging/android/android_alarm.h"
 #include "factory/ssp_factory.h"
 #include "factory/ssp_mcu.h"
@@ -56,7 +59,14 @@
 #define CONFIG_SEC_DEBUG	0
 
 #define DEFUALT_POLLING_DELAY	(200 * NSEC_PER_MSEC)
-#define DATA_PACKET_SIZE	960
+//#define DATA_PACKET_SIZE	960
+#define DATA_PACKET_SIZE	2000
+
+/** HIFI Sensor **/
+#define SIZE_TIMESTAMP_BUFFER	1000
+#define SIZE_MOVING_AVG_BUFFER	20
+#define SKIP_CNT_MOVING_AVG_ADD	2
+#define SKIP_CNT_MOVING_AVG_CHANGE	3
 
 /* AP -> SSP Instruction */
 #define MSG2SSP_INST_BYPASS_SENSOR_ADD		0xA1
@@ -103,6 +113,7 @@
 #define MSG2SSP_AP_SET_BIG_DATA			0xFA
 #define MSG2SSP_AP_START_BIG_DATA		0xFB
 #define MSG2SSP_AP_SET_MAGNETIC_STATIC_MATRIX	0xFD
+#define MSG2SSP_AP_SET_HALL_THRESHOLD		0xE9
 #define MSG2SSP_AP_SENSOR_TILT			0xEA
 #define MSG2SSP_AP_MCU_SET_TIME			0xFE
 #define MSG2SSP_AP_MCU_GET_TIME			0xFF
@@ -116,10 +127,27 @@
 #define MSG2SSP_AP_IRDATA_SEND			0x38
 #define MSG2SSP_AP_IRDATA_SEND_RESULT		0x39
 #define MSG2SSP_AP_PROX_GET_TRIM		0x40
+#define MSG2SSP_AP_SET_6AXIS_PIN		0x7D
+#define MSG2SSP_AP_WHOAMI_6AXIS			0x7F
+
+#define SH_MSG2AP_GYRO_CALIBRATION_START   0x43
+#define SH_MSG2AP_GYRO_CALIBRATION_STOP    0x44
+#define SH_MSG2AP_GYRO_CALIBRATION_EVENT_OCCUR  0x45
+
+/* gyro calibration state*/
+#define GYRO_CALIBRATION_STATE_NOT_YET		0
+#define GYRO_CALIBRATION_STATE_REGISTERED 	1
+#define GYRO_CALIBRATION_STATE_EVENT_OCCUR  2
+#define GYRO_CALIBRATION_STATE_DONE 		3
 
 #define SUCCESS					1
 #define FAIL					0
 #define ERROR					-1
+
+/* Key value for Camera - Gyroscope sync */
+#define CAMERA_GYROSCOPE_SYNC 7700000ULL //7.7ms
+#define CAMERA_GYROSCOPE_SYNC_DELAY 10000000ULL
+
 
 #define ssp_dbg(format, ...) do { \
 	pr_debug("[SSP] " format "\n", ##__VA_ARGS__); \
@@ -214,8 +242,11 @@ enum {
 #endif
 	INTERRUPT_GYRO_SENSOR,
 	TILT_DETECTOR,
+	PICKUP_GESTURE,
+	MOTOR_TEST,
 	META_SENSOR,
 	SENSOR_MAX,
+	BATCH_META_SENSOR = 200,
 };
 
 enum {
@@ -229,8 +260,18 @@ enum {
 enum {
 	BIG_TYPE_DUMP = 0,
 	BIG_TYPE_READ_LIB,
+	/** HiFi Sensor **/
+	BIG_TYPE_READ_HIFI_BATCH,
+	/** HiFi Sensor **/
 	BIG_TYPE_MAX,
 };
+
+enum {
+	SIX_AXIS_MPU6500 = 0,
+	SIX_AXIS_K6DS3,
+	SIX_AXIS_BMI160,
+	SIX_AXIS_MAX,
+}; 
 
 extern struct class *sensors_event_class;
 
@@ -308,6 +349,9 @@ struct sensor_value {
 		struct { /* tilt detector */
 			u8 tilt_detector;
 		};
+		struct { /* pickup gesture */
+			u8 pickup_gesture;
+		};
 		struct meta_data_event { /* meta data */
 			s32 what;
 			s32 sensor;
@@ -342,6 +386,7 @@ enum {
 	BATCH_MODE_RUN,
 };
 
+/* remove for hifi batching
 struct ssp_time_diff {
 	u16 batch_count;
 	u16 batch_mode;
@@ -349,12 +394,19 @@ struct ssp_time_diff {
 	u64 irq_diff;
 	u16 batch_count_fixed;
 };
+*/
+
+struct ssp_batch_event {
+	char *batch_data;
+	int batch_length;
+};
 
 struct ssp_data {
 	char name[SENSOR_MAX][SENSOR_NAME_MAX_LEN];
 	bool enable[SENSOR_MAX];
 	int data_len[SENSOR_MAX];
 	int report_len[SENSOR_MAX];
+	int report_mode[SENSOR_MAX];
 	struct sensor_value buf[SENSOR_MAX];
 	struct iio_dev *indio_devs[SENSOR_MAX];
 	struct iio_chan_spec indio_channels[SENSOR_MAX];
@@ -412,26 +464,57 @@ struct ssp_data {
 	unsigned int uIrqCnt;
 	unsigned int uDumpCnt;
 
-	unsigned int uSensorState;
+	uint64_t uSensorState;
 	unsigned int uCurFirmRev;
 	unsigned int uFactoryProxAvg[4];
 	char uLastResumeState;
 	char uLastAPState;
 
-	atomic_t aSensorEnable;
+	atomic64_t aSensorEnable;
 	int64_t adDelayBuf[SENSOR_MAX];
 	s32 batchLatencyBuf[SENSOR_MAX];
 	s8 batchOptBuf[SENSOR_MAX];
 	u64 lastTimestamp[SENSOR_MAX];
 	bool reportedData[SENSOR_MAX];
 
+	bool skipEventReport;
+	bool cameraGyroSyncMode;
+
+	/** HIFI Sensor **/
+	u64 ts_index_buffer[SIZE_TIMESTAMP_BUFFER];
+	unsigned int ts_stacked_cnt;
+	unsigned int ts_stacked_offset;
+	unsigned int ts_prev_index[SENSOR_MAX];
+	u64 ts_irq_last;
+	u64 ts_last_enable_cmd_time;
+
+	u64 lastDeltaTimeNs[SENSOR_MAX];
+
+	u64 ts_avg_buffer[SENSOR_MAX][SIZE_MOVING_AVG_BUFFER];
+	u8 ts_avg_buffer_cnt[SENSOR_MAX];
+	u8 ts_avg_buffer_idx[SENSOR_MAX];
+	u64 ts_avg_buffer_sum[SENSOR_MAX];
+	int ts_avg_skip_cnt[SENSOR_MAX];
+
+	struct workqueue_struct *batch_wq;
+	struct mutex batch_events_lock;
+	struct ssp_batch_event batch_event;
+	//hifi batching suspend-wakeup issue
+	u64 resumeTimestamp;
+	bool bIsResumed;
+	/** HIFI Sensor **/
+	bool bIsFirstData[SENSOR_MAX];
+
 	struct ssp_sensorhub_data *hub_data;
 	int accel_position;
+	int accel_dot;
 	int mag_position;
 	int fw_dl_state;
 	unsigned char pdc_matrix[PDC_SIZE];
+	short hall_threshold[5];
 	struct mutex comm_mutex;
 	struct mutex pending_mutex;
+	struct mutex enable_mutex;
 
 	int mcu_int1;
 	int mcu_int2;
@@ -452,7 +535,11 @@ struct ssp_data {
 #endif
 	int acc_type;
 	int pressure_type;
+
+	bool debug_enable;
 	atomic_t int_gyro_enable;
+	int gyro_lib_state;
+	char sensor_state[SENSOR_MAX + 1];
 };
 
 struct ssp_big {
@@ -462,4 +549,5 @@ struct ssp_big {
 	u32 addr;
 };
 
+u64 get_current_timestamp(void);
 #endif
