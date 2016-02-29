@@ -1334,7 +1334,7 @@
 /sys/class/sec(/.*)?                --               u:object_r:sysfs_sec:s0
 /sys/class/sensors(/.*)?            --               u:object_r:sysfs_sensor_writable:s0
 /sys/class/tcon(/.*)?	--                 u:object_r:sysfs_tcon_writable:s0
-/sys/devices/virtual/sec/sec_epen(/.*)?		--	u:object_r:sysfs_sec:s0
+# Remove because of restorecon_recursive_symlink /sys/devices/virtual/sec/sec_epen(/.*)?		--	u:object_r:sysfs_sec:s0
 # Remove because of restorecon_recursive_symlink /sys/devices/virtual/sec(/.*)?      --               u:object_r:sysfs_sec:s0
 #/sys/qemu_trace(/.*)?	--	u:object_r:sysfs_writable:s0
 /sys/kernel/config(/.*)?                              u:object_r:configfs:s0
