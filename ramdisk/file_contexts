@@ -350,8 +350,9 @@
 /dev/hsicctl.*                                  u:object_r:hsic_device:s0
 /dev/kgsl-3d0                                   u:object_r:gpu_device:s0
 /dev/mhi_pipe_.*                                u:object_r:mhi_device:s0
+/dev/bhi                                        u:object_r:bhi_device:s0
 /dev/msm_.*                                     u:object_r:audio_device:s0
-# SEC removed : /dev/usf1                                       u:object_r:usf_device:s0
+##SEC removed dup context : /dev/usf1                                       u:object_r:usf_device:s0
 /dev/msm_dsps                                   u:object_r:sensors_device:s0
 /dev/msm_thermal_query                          u:object_r:thermal_device:s0
 /dev/nfc-nci                                    u:object_r:nfc_device:s0
@@ -360,7 +361,7 @@
 /dev/qseecom                                    u:object_r:qseecom_device:s0
 /dev/seemplog                                   u:object_r:seemplog_device:s0
 /dev/radio0                                     u:object_r:fm_radio_device:s0
-# SEC removed : /dev/rtc0                                       u:object_r:rtc_device:s0
+##SEC removed dup context : /dev/rtc0                                       u:object_r:rtc_device:s0
 /dev/sensors                                    u:object_r:sensors_device:s0
 /dev/smd.*                                      u:object_r:smd_device:s0
 /dev/smem_log                                   u:object_r:smem_log_device:s0
@@ -373,8 +374,8 @@
 /dev/v4l-subdev.*                               u:object_r:camera_device:s0
 /dev/vm_bms                                     u:object_r:vm_bms_device:s0
 /dev/battery_data                               u:object_r:battery_data_device:s0
-#/dev/block/mmcblk1                              u:object_r:sd_device:s0
-#/dev/block/mmcblk1p1                            u:object_r:sd_device:s0
+##SEC removed dup context : /dev/block/mmcblk1                              u:object_r:sd_device:s0
+##SEC removed dup context : /dev/block/mmcblk1p1                            u:object_r:sd_device:s0
 /dev/ccid_bridge                                u:object_r:usb_uicc_device:s0
 /dev/subsys_.*                                  u:object_r:ssr_device:s0
 /dev/ramdump_.*                                 u:object_r:ramdump_device:s0
@@ -388,16 +389,17 @@
 /dev/dpl_ctrl                                   u:object_r:rmnet_device:s0
 /dev/wcnss_ctrl                                 u:object_r:wcnss_device:s0
 /dev/wcnss_wlan                                 u:object_r:wcnss_device:s0
-##SEC removed dup contexts, /dev/pta                                        u:object_r:pta_device:s0
+##SEC removed dup context : /dev/pta                                        u:object_r:pta_device:s0
 /dev/mdss_rotator                               u:object_r:graphics_device:s0
 /dev/hbtp_input                                 u:object_r:hbtp_device:s0
+/dev/hbtp_vm                                    u:object_r:hbtp_device:s0
 /dev/jdi-bu21150                                u:object_r:bu21150_device:s0
 /dev/voice_svc                                  u:object_r:voice_device:s0
 /dev/avtimer                                    u:object_r:avtimer_device:s0
-##SEC removed duplicated contexts,/dev/coresight-stm                              u:object_r:qdss_device:s0
-##SEC removed duplicated contexts,/dev/coresight-tmc-etf                          u:object_r:qdss_device:s0
-##SEC removed duplicated contexts,/dev/coresight-tmc-etr                          u:object_r:qdss_device:s0
-##SEC removed duplicated contexts,/dev/coresight-tmc-etr-stream                   u:object_r:qdss_device:s0
+##SEC removed dup context : /dev/coresight-stm                              u:object_r:qdss_device:s0
+##SEC removed dup context : /dev/coresight-tmc-etf                          u:object_r:qdss_device:s0
+##SEC removed dup context : /dev/coresight-tmc-etr                          u:object_r:qdss_device:s0
+##SEC removed dup context : /dev/coresight-tmc-etr-stream                   u:object_r:qdss_device:s0
 /dev/system_health_monitor                      u:object_r:system_health_monitor_device:s0
 /dev/qce                                        u:object_r:qce_device:s0
 /dev/msm-rng                                    u:object_r:rng_device:s0
@@ -415,7 +417,7 @@
 /dev/block/bootdevice/by-name/ssd               u:object_r:ssd_device:s0
 /dev/block/bootdevice/by-name/misc              u:object_r:misc_partition:s0
 #/dev/block/mmcblk0p13                          u:object_r:bootselect_device:s0
-#/dev/block/zram0                                u:object_r:swap_block_device:s0
+##SEC removed dup context : /dev/block/zram0                                u:object_r:swap_block_device:s0
 /dev/block/bootdevice/by-name/dip               u:object_r:dip_device:s0
 /dev/block/bootdevice/by-name/mdtp              u:object_r:mdtp_device:s0
 
@@ -488,6 +490,7 @@
 /system/bin/qmuxd                               u:object_r:qmuxd_exec:s0
 /system/bin/port-bridge                         u:object_r:port-bridge_exec:s0
 /system/bin/sensors.qcom                        u:object_r:sensors_exec:s0
+##SEC removed ambigious contexts:/system/bin/sns.*                               u:object_r:sensors_test_exec:s0
 /system/bin/test_diag                           u:object_r:diag_exec:s0
 /system/vendor/bin/thermal-engine               u:object_r:thermal-engine_exec:s0
 /system/bin/vm_bms                              u:object_r:vm_bms_exec:s0
@@ -531,7 +534,7 @@
 /system/bin/garden_app                          u:object_r:location_exec:s0
 /system/bin/gpsone_daemon                       u:object_r:location_exec:s0
 /system/vendor/bin/slim_daemon                  u:object_r:location_exec:s0
-# SEC removed : /system/bin/energy-awareness                    u:object_r:energyawareness_exec:s0
+##SEC removed dup context : /system/bin/energy-awareness                    u:object_r:energyawareness_exec:s0
 /system/vendor/bin/fidodaemon                   u:object_r:fidodaemon_exec:s0
 /system/bin/secotad                             u:object_r:secotad_exec:s0
 /system/vendor/bin/qseeproxydaemon              u:object_r:qseeproxy_exec:s0
@@ -539,9 +542,8 @@
 /system/bin/dts_eagle_service                   u:object_r:dtseagleservice_exec:s0
 /system/vendor/bin/qti                          u:object_r:qti_exec:s0
 /system/bin/wcnss_service                       u:object_r:wcnss_service_exec:s0
-# SEC added : wcnss_filter
-/system/bin/wcnss_filter                       u:object_r:wcnss_service_exec:s0
 /system/vendor/bin/hbtp_daemon                  u:object_r:hbtp_exec:s0
+/system/vendor/bin/touch_fusion                 u:object_r:touchfusion_exec:s0
 /system/vendor/bin/seemp_healthd                u:object_r:seemp_health_daemon_exec:s0
 # SEC added : cld-fwlog-netlink
 /system/bin/cld-fwlog-netlink                       u:object_r:wcnss_service_exec:s0
@@ -551,7 +553,8 @@
 /system/bin/btsnoop                             u:object_r:btsnoop_exec:s0
 /system/bin/dun-server                          u:object_r:dun-server_exec:s0
 /system/bin/wfdservice                          u:object_r:wfdservice_exec:s0
-# SEC removed : /system/bin/wcnss_filter                        u:object_r:wcnss_filter_exec:s0
+## SEC changed exec type due to BT error : /system/bin/wcnss_filter                        u:object_r:wcnss_filter_exec:s0
+/system/bin/wcnss_filter                        u:object_r:wcnss_service_exec:s0
 /system/bin/usf_epos                            u:object_r:usf_exec:s0
 /system/bin/usf_gesture                         u:object_r:usf_exec:s0
 /system/bin/usf_hovering                        u:object_r:usf_exec:s0
@@ -576,31 +579,31 @@
 #/sys/devices/[^/]+bcl[^/]+(/.*)?                                    u:object_r:sysfs_thermal:s0
 # this code increase the booting time. so SEC changes from [^/]+bcl[^/]+(/.*)? to qcom,bcl.*(/.*)?
 /sys/devices/qcom,bcl.*(/.*)?                                       u:object_r:sysfs_thermal:s0
-/sys/devices/f9200000.*/power_supply/usb(/.*)?                      u:object_r:sysfs_usb_supply:s0
-/sys/devices/msm_dwc3/power_supply/usb(/.*)?                        u:object_r:sysfs_usb_supply:s0
-/sys/devices/msm_otg/power_supply/usb(/.*)?                         u:object_r:sysfs_usb_supply:s0
+# SEC Remove to cover class symlink /sys/devices/f9200000.*/power_supply/usb(/.*)?                      u:object_r:sysfs_usb_supply:s0
+# SEC Remove to cover class symlink /sys/devices/msm_dwc3/power_supply/usb(/.*)?                        u:object_r:sysfs_usb_supply:s0
+# SEC Remove to cover class symlink /sys/devices/msm_otg/power_supply/usb(/.*)?                         u:object_r:sysfs_usb_supply:s0
 /sys/devices/platform/battery_current_limit                         u:object_r:sysfs_thermal:s0
-/sys/devices/qpnp-charger.*/power_supply/battery(/.*)?              u:object_r:sysfs_battery_supply:s0
+# SEC Remove to cover class symlink /sys/devices/qpnp-charger.*/power_supply/battery(/.*)?              u:object_r:sysfs_battery_supply:s0
 /sys/devices/system/cpu/cpu0/rq-stats/*                             u:object_r:sysfs_rqstats:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/devices/virtual/graphics/fb([0-2])+/idle_time                  u:object_r:sysfs_graphics:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/devices/virtual/graphics/fb([0-2])+/dynamic_fps                u:object_r:sysfs_graphics:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/devices/virtual/graphics/fb([0-2])+/product_description        u:object_r:sysfs_graphics:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/devices/virtual/graphics/fb([0-2])+/vendor_name                u:object_r:sysfs_graphics:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/devices/virtual/graphics/fb([0-2])+/hdcp/tp                    u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/devices/virtual/graphics/fb([0-2])+/idle_time                  u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/devices/virtual/graphics/fb([0-2])+/dynamic_fps                u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/devices/virtual/graphics/fb([0-2])+/product_description        u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/devices/virtual/graphics/fb([0-2])+/vendor_name                u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/devices/virtual/graphics/fb([0-2])+/hdcp/tp                    u:object_r:sysfs_graphics:s0
 /sys/devices/virtual/hsicctl/hsicctl1[0-9]/modem_wait               u:object_r:sysfs_hsic_modem_wait:s0
 /sys/devices/virtual/hsicctl/hsicctl[0-9]/modem_wait                u:object_r:sysfs_hsic_modem_wait:s0
 /sys/devices/virtual/smdpkt/smdcntl1[0-9]/open_timeout              u:object_r:sysfs_smd_open_timeout:s0
 /sys/devices/virtual/smdpkt/smdcntl[0-9]/open_timeout               u:object_r:sysfs_smd_open_timeout:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/devices/virtual/thermal(/.*)?                                  u:object_r:sysfs_thermal:s0
+# SEC Remove to cover class symlink /sys/devices/virtual/thermal(/.*)?                                  u:object_r:sysfs_thermal:s0
 /sys/module/msm_serial_hs/parameters/debug_mask                     u:object_r:sysfs_msmuart_file:s0
 /sys/module/msm_thermal(/.*)?                                       u:object_r:sysfs_thermal:s0
 /sys/module/msm_thermal/core_control/cpus_offlined                  u:object_r:sysfs_mpdecision:s0
-/sys/devices/f9a55000.*/power_supply/usb(/.*)?                      u:object_r:sysfs_usb_supply:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/devices/virtual/graphics/fb([0-2])+/hpd                        u:object_r:sysfs_graphics:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/devices/virtual/graphics/fb([0-2])+/res_info                   u:object_r:sysfs_graphics:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/devices/virtual/graphics/fb([0-2])+/s3d_mode                   u:object_r:sysfs_graphics:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/class/graphics/fb([0-2])+/mdp/caps                             u:object_r:sysfs_graphics:s0
-# SEC Remove because of restorecon_recursive_symlink /sys/class/graphics/fb([0-2])+/ad                                   u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/devices/f9a55000.*/power_supply/usb(/.*)?                      u:object_r:sysfs_usb_supply:s0
+# SEC Remove to cover class symlink /sys/devices/virtual/graphics/fb([0-2])+/hpd                        u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/devices/virtual/graphics/fb([0-2])+/res_info                   u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/devices/virtual/graphics/fb([0-2])+/s3d_mode                   u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/class/graphics/fb([0-2])+/mdp/caps                             u:object_r:sysfs_graphics:s0
+# SEC Remove to cover class symlink /sys/class/graphics/fb([0-2])+/ad                                   u:object_r:sysfs_graphics:s0
 /sys/bus/platform/drivers/xhci_msm_hsic(/.*)?                       u:object_r:sysfs_hsic:s0
 /sys/devices/msm_hsic_host/host_ready                               u:object_r:sysfs_hsic_host_rdy:s0
 /sys/bus/esoc(/.*)?                                                 u:object_r:sysfs_esoc:s0
@@ -623,10 +626,11 @@
 /data/misc/sensors(/.*)?                                            u:object_r:sensors_data_file:s0
 /data/rfs.*                                                         u:object_r:rfs_data_file:s0
 /data/hlos_rfs(/.*)?                                                u:object_r:rfs_shared_hlos_file:s0
+#SEC keepped camera_data_file, not camera_socket
 /data/camera(/.*)?                                                  u:object_r:camera_data_file:s0
 /data/misc/stargate(/.*)?                                           u:object_r:qfp-daemon_data_file:s0
 /data/system/sensors(/.*)?                                          u:object_r:sensors_data_file:s0
-# SEC removed : /data/time/*                                                        u:object_r:time_data_file:s0
+##SEC removed dup context : /data/time/*                                                        u:object_r:time_data_file:s0
 /data/nfc(/.*)?                                                     u:object_r:nfc_data_file:s0
 /data/system/perfd(/.*)?                                            u:object_r:mpctl_data_file:s0
 /data/misc/perfd(/.*)?                                              u:object_r:mpctl_socket:s0
@@ -647,7 +651,7 @@
 /data/misc/dts(/.*)?                                                u:object_r:dts_data_file:s0
 /data/misc/seemp(/.*)?                                              u:object_r:seemp_file:s0
 /data/misc/SelfHost(/.*)?                                           u:object_r:RIDL_data_file:s0
-# SEC added /data/misc/radio(/.*)?                                              u:object_r:radio_data_file:s0
+##SEC removed dup context : /data/misc/radio(/.*)?                                              u:object_r:radio_data_file:s0
 /data/misc/port_bridge(/.*)?                                        u:object_r:port_bridge_data_file:s0
 /data/misc/fm(/.*)?                                                 u:object_r:fm_data_file:s0
 /data/misc/audio_pp(/.*)?                                           u:object_r:audio_pp_data_file:s0
@@ -658,7 +662,7 @@
 ###################################
 # persist files
 #
-#/persist(/.*)?                                                      u:object_r:persist_file:s0
+##SEC removed dup context : /persist(/.*)?                                                      u:object_r:persist_file:s0
 /persist/bluetooth(/.*)?                                            u:object_r:persist_bluetooth_file:s0
 /persist/drm(/.*)?                                                  u:object_r:persist_drm_file:s0
 /persist/sensors(/.*)?                                              u:object_r:sensors_persist_file:s0
@@ -1329,6 +1333,7 @@
 /sys/class/mstldo/mst_drv/transmit         u:object_r:sysfs_mst_writable:s0
 /sys/class/power_supply/battery(/.*)?	-- u:object_r:sysfs_battery_supply:s0
 /sys/class/power_supply/battery/music -- u:object_r:sysfs_music_power_writable:s0
+/sys/class/power_supply/usb(/.*)?	       --     u:object_r:sysfs_usb_supply:s0
 /sys/class/rfkill/rfkill[0-9]*/state -- u:object_r:sysfs_bluetooth_writable:s0
 /sys/class/rfkill/rfkill[0-9]*/type -- u:object_r:sysfs_bluetooth_writable:s0
 /sys/class/sec(/.*)?                --               u:object_r:sysfs_sec:s0

@@ -7,8 +7,10 @@ on post-fs-data
     # give system access to wpa_supplicant.conf for backup and restore
     mkdir /data/misc/wifi 0770 wifi system
     chmod 0660 /data/misc/wifi/wpa_supplicant.conf
+    chown system wifi /data/misc/wifi/wpa_supplicant.conf
+    chmod 0660 /data/misc/wifi/wpa_supplicant.bak.conf
+    chown system wifi /data/misc/wifi/wpa_supplicant.bak.conf
     mkdir /data/misc/wifi/sockets 0770 wifi wifi
-    mkdir /data/misc/wifi/log/ 0770 wifi system
     mkdir /data/misc/dhcp 0775 dhcp dhcp
     chown dhcp dhcp /data/misc/dhcp
 
@@ -25,6 +27,16 @@ on post-fs-data
     chown system root /data/.wifiver.info
     chmod 0666 /data/.wifiver.info
 
+    # for RSDB Support
+    write /data/.rsdb.info 1
+    chown system root /data/.rsdb.info
+    chmod 0666 /data/.rsdb.info
+	
+    # for WLC_E_TRACE support
+    write /data/.logtrace.info 1
+    chown system root /data/.logtrace.info
+    chmod 0666 /data/.logtrace.info
+
     # for WIFI MEMDUMP
     write /data/.memdump.info 0
     chown system root /data/.memdump.info
@@ -35,6 +47,10 @@ on post-fs-data
     chmod 0664 /data/.roamoff.info
     chmod 0664 /data/.frameburst.info
     chmod 0664 /data/.txbf.info
+    chmod 0664 /data/.proptx.info
+    chmod 0664 /data/.wfacert.info
+    chown system wifi /data/.wfacert.info
+
     # for WIFI MAC address
     mkdir /efs/wifi 0775 radio system
     chown system wifi /efs/wifi/.mac.info

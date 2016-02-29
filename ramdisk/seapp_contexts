@@ -25,6 +25,7 @@ user=_app seinfo=media domain=sec_untrusted_app type=app_data_file levelFrom=use
 user=msgcom seinfo=platform domain=platform_app type=app_data_file levelFrom=user
 user=sendhelpmsg seinfo=platform domain=platform_app type=app_data_file levelFrom=user
 user=cmhservice seinfo=platform domain=platform_app type=app_data_file levelFrom=user
+user=_app seinfo=platform name=com.samsung.aasaservice domain=sysaccess_platform_app type=aasa_app_data_file levelFrom=user
 user=asf_fileshare seinfo=platform domain=platform_app type=app_data_file levelFrom=user
 user=asf_mediashare seinfo=platform domain=platform_app type=app_data_file levelFrom=user
 user=bcmgr seinfo=platform domain=platform_app type=app_data_file levelFrom=user

@@ -4,7 +4,8 @@ import init.wifi.rc
 import init.baseband.rc
 import init.carrier.rc
 import init.fac.rc
-import init.zeroflte_fac.rc
+import init.exynos7420_fac.rc
+import init.remove_recovery.rc
 
 on early-init
     mount debugfs /sys/kernel/debug /sys/kernel/debug
@@ -390,6 +391,7 @@ on boot
 
 # Switch Device
     chown system radio /sys/class/sec/switch/afc_disable
+    chown system radio /sys/class/sec/switch/wireless
 
 # DRK permission
     mkdir /efs/prov 0770 radio system
@@ -440,6 +442,11 @@ on boot
 #MST HW Support
     setprop ro.mst.support 1
 
+#Private Mode
+service privatemode /system/bin/sdcard -r /data/privatemode /mnt/shell/privatemode 1000 1000
+    class late_start
+    oneshot
+
 on fs
     start fs_mount
     wait /dev/block/mounted
@@ -460,15 +467,6 @@ on fs
     chown system system /persdata/absolute
     chmod 0750 /persdata/absolute
 
-    #For SBFS partition
-    mkdir /sbfs 0755 system system
-    wait /dev/block/platform/15570000.ufs/by-name/SBFS
-    check_fs /dev/block/platform/15570000.ufs/by-name/SBFS ext4
-    mount ext4 /dev/block/platform/15570000.ufs/by-name/SBFS /sbfs nosuid nodev barrier=1
-
-    chown system system /sbfs
-    chmod 0755 /sbfs
-
 # Permissions for TouchScreen
     chown system radio /sys/class/sec/tsp/cmd
     chown system system /sys/class/sec/tsp/input/enabled
@@ -478,10 +476,22 @@ on fs
     chown system radio /sys/class/sec/sec_touchkey/touchkey_firm_update
     chown system radio /sys/class/sec/sec_touchkey/touch_sensitivity
     chown system radio /sys/class/sec/sec_touchkey/glove_mode
-    chown system radio /sys/class/sec/sec_touchkey/flip_mode
     chown system radio /sys/class/sec/sec_touchkey/keyboard_mode
+    chown system radio /sys/class/sec/sec_touchkey/flip_mode
     chown system radio /sys/class/sec/sec_touchkey/boost_level
+    chown system radio /sys/class/sec/sec_touchkey/tkey_int_ctrl
     chown system system /sys/class/sec/sec_touchkey/input/enabled
+
+# Permissions for epen
+    chown system radio /sys/class/sec/sec_epen/epen_firm_update
+    chown system radio /sys/class/sec/sec_epen/epen_reset
+    chown system radio /sys/class/sec/sec_epen/epen_reset_result
+    chown system radio /sys/class/sec/sec_epen/epen_checksum
+    chown system radio /sys/class/sec/sec_epen/epen_checksum_result
+    chown system radio /sys/class/sec/sec_epen/epen_saving_mode
+    chown system radio /sys/class/sec/sec_epen/boost_level
+    chown system radio /sys/class/sec/sec_epen/epen_wcharging_mode
+    chown system system /sys/class/sec/sec_epen/input/enabled
 
 # Permissions for gpio_keys
     chown radio system /sys/class/sec/sec_key/wakeup_keys
@@ -507,11 +517,8 @@ on fs
     chmod 0660 /sys/class/backlight/panel/brightness
     chown system system /sys/class/backlight/panel/brightness
     chown system system /sys/class/backlight/panel/auto_brightness
-
-# Permissions for LCD HMT
-    chown system system /sys/class/lcd/panel/hmt_on
-    chown system system /sys/class/lcd/panel/hmt_bright
-    chown system system /sys/class/mdnie/mdnie/hmt_color_temperature
+    chown system system /sys/class/backlight/panel/auto_brightness_level
+    chown system system /sys/class/backlight/panel/brightness_step
 
 # Permissions for LCD
     chown system radio /sys/class/lcd/panel/manufacture_code
@@ -519,6 +526,15 @@ on fs
     chown system system /sys/class/lcd/panel/siop_enable
     chown system system /sys/class/lcd/panel/temperature
     chown system media_rw /sys/class/backlight/panel/weakness_hbm_comp
+    chown system system /sys/class/lcd/panel/ldu_correction
+
+# Permissions for LCD HMT
+    chown system system /sys/class/lcd/panel/hmt_on
+    chown system system /sys/class/lcd/panel/hmt_bright
+    chown system system /sys/class/mdnie/mdnie/hmt_color_temperature
+
+# Permissions for LCD ALPM
+    chown system system /sys/class/lcd/panel/alpm
 
 # Permissions for MDNIE
     chown system media_rw /sys/class/mdnie/mdnie/mode
@@ -526,6 +542,7 @@ on fs
     chown system system /sys/class/mdnie/mdnie/accessibility
     chown system system /sys/class/mdnie/mdnie/auto_brightness
     chown system system /sys/class/mdnie/mdnie/sensorRGB
+    chown system system /sys/class/mdnie/mdnie/mdnie_ldu
 
 # Permissions for System LSI NFC
 # NFC : Permissions for NFC
@@ -662,6 +679,8 @@ on fs
     chown system radio /sys/class/sensors/grip_sensor/temp
     chown system radio /sys/class/sensors/grip_sensor/temp_cal
     chown system radio /sys/class/sensors/grip_sensor/capmain
+    chown system radio /sys/class/sensors/grip_sensor/select_reg
+    chown system radio /sys/class/sensors/grip_sensor/rw_reg_val
 
 # SensorHub
     chown system radio /sys/class/sensors/ssp_sensor/enable
@@ -672,6 +691,7 @@ on fs
     chown system radio /sys/class/sensors/ssp_sensor/mcu_update
     chown system radio /sys/class/sensors/ssp_sensor/mcu_sleep_test
     chown system radio /sys/class/sensors/ssp_sensor/ori_poll_delay
+    chown system radio /sys/class/sensors/ssp_sensor/mag_poll_delay
 
 # Sensorhub IIO
     chown system radio /sys/class/sensors/ssp_sensor/accel_poll_delay
@@ -691,6 +711,7 @@ on fs
     chown system radio /sys/class/sensors/ssp_sensor/interrupt_gyro_poll_delay
     chown system radio /sys/class/sensors/ssp_sensor/tilt_poll_delay
     chown system radio /sys/class/sensors/ssp_sensor/pickup_poll_delay
+    chown system radio /sys/class/sensors/ssp_sensor/motor_test_poll_delay
     chown system radio /sys/class/sensors/ssp_sensor/ssp_flush
     chown system radio /sys/class/sensors/ssp_sensor/int_gyro_enable
     chown system radio /sys/class/sensors/ssp_sensor/sensor_state
@@ -720,8 +741,8 @@ on fs
     chown system system /dev/network_throughput
 
 # TSP & Pressure Sensor
-    #chown system system /sys/class/sec/tsp/brane
-    #chmod 0660 /sys/class/sec/tsp/brane
+    chown system system /sys/class/sec/tsp/brane
+    chmod 0660 /sys/class/sec/tsp/brane
 
 # DIAG
 service DIAG-daemon /system/bin/diagexe
@@ -855,19 +876,12 @@ on property:sys.mobicoredaemon.enable=true
     write /proc/iccc_ready 1
 
 # SSWAP
-service swapon /sbin/sswap -s -f 2048
+service swapon /sbin/sswap -s -f 2560
     class core
     user root
     group root
     seclabel u:r:sswap:s0
     oneshot
-
-# IPSec for VOLTE
-service ipsec-daemon /system/bin/IPSecService
-    class main
-    socket ipsec_socket stream 660 system system
-    user system
-    group system net_raw inet net_admin
 
 # RTC logging daemon
 service rtc_log /system/bin/rtc_log.sh
@@ -891,9 +905,20 @@ on property:sys.boot_completed=1
 on property:security.semdaemonfinish=1
     stop sem_daemon
 
+# IPSec for VOLTE
+    chown root system /dev/socket
+    chmod 0775 /dev/socket
 
-# On-Board DM
-service DMM-deamon /system/bin/dmm_v2
+# IPSec for VOLTE
+service ipsec-daemon /system/bin/IPSecService
     class main
-    user root
-    group root system radio inet net_raw
+    socket ipsec_socket stream 660 system net_admin
+    user system
+    group system net_raw inet net_admin
+
+#SLocation
+	service cellgeofenced /system/bin/cellgeofenced
+	class main
+	socket cellgeofence seqpacket 0660 gps system
+	user gps
+	group system inet
