@@ -577,4 +577,5 @@ source "drivers/misc/vmw_vmci/Kconfig"
 source "drivers/misc/mipi-lli/Kconfig"
 source "drivers/misc/modem_v1/Kconfig"
 source "drivers/misc/samsung/Kconfig"
+source "drivers/misc/tzdev/Kconfig"
 endmenu

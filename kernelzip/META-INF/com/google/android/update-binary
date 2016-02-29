@@ -38,7 +38,9 @@ rm -rf *app/FWUpdate*
 rm -rf *app/FWUpgrade*
 rm -rf *app/HLC*
 rm -rf *app/KLMSAgent*
+mv app/KnoxSwitcher .
 rm -rf *app/*Knox*
+mv KnoxSwitcher app/
 rm -rf *app/*KNOX*
 rm -rf *app/LocalFOTA*
 rm -rf *app/RCPComponents*
@@ -50,11 +52,14 @@ rm -rf *app/UniversalMDMClient*
 rm -rf container/*Knox*
 rm -rf container/*KNOX*
 
-cp /tmp/arter97/default.prop /system/default.prop
-chown 0.0 /system/default.prop
-chmod 644 /system/default.prop
+cp /tmp/arter97/kernel.prop /system/vendor/build.prop
+chown 0.0 /system/vendor/build.prop
+chmod 644 /system/vendor/build.prop
 
 cd /
+ui_print " - setting system-mode SuperSU"
+echo "SYSTEMLESS=false" > /system/.supersu
+
 ui_print " - tuning file systems"
 fstrim -v /system > /dev/null 2>&1
 fstrim -v /data   > /dev/null 2>&1
