@@ -39,11 +39,6 @@ on init
     chown system system /proc/avc_msg
     chmod 0660 /proc/avc_msg
 
-    # Vibetonz 
-    export VIBE_PIPE_PATH /dev/pipes 
-    mkdir /dev/pipes 0771 vibe vibe 
-    restorecon /dev/pipes
-
     # Backward compatibility
     symlink /system/etc /etc
     symlink /sys/kernel/debug /d
@@ -594,10 +589,6 @@ on post-fs-data
     mkdir /data/DownFilters/Lib64 0775 system system
 
 on boot
-    # Vibetonz 
-    chmod 0660 /dev/tspdrv 
-    chown vibe vibe /dev/tspdrv 
-
     # basic network init
     ifup lo
     hostname localhost
@@ -810,7 +801,6 @@ on boot
     chown system system /sys/class/leds/red/device/grpfreq
     chown system system /sys/class/leds/red/device/grppwm
     chown system system /sys/class/leds/red/device/blink
-    chown system system /sys/class/timed_output/vibrator/enable
     chown system system /sys/module/sco/parameters/disable_esco
     chown system system /sys/kernel/ipv4/tcp_wmem_min
     chown system system /sys/kernel/ipv4/tcp_wmem_def
@@ -1454,13 +1444,6 @@ service mdnsd /system/bin/mdnsd
     socket mdnsd stream 0660 mdnsr inet
     disabled
     oneshot
-
-# Vibetonz 
-service immvibed /system/bin/immvibed 
-    class core 
-    user vibe 
-    group vibe 
-    oneshot 
 
 service uncrypt /system/bin/uncrypt
     class main

@@ -451,7 +451,6 @@
 /dev/socket/rild-debug3                         u:object_r:rild_debug_socket:s0
 /dev/socket/msm_irqbalance                      u:object_r:msm_irqbalance_socket:s0
 /dev/socket/seempdw                             u:object_r:seempdw_socket:s0
-/dev/socket/RIDL(/.*)?                          u:object_r:RIDL_socket:s0
 
 ###################################
 # System files
@@ -1335,7 +1334,7 @@
 /sys/class/sec(/.*)?                --               u:object_r:sysfs_sec:s0
 /sys/class/sensors(/.*)?            --               u:object_r:sysfs_sensor_writable:s0
 /sys/class/tcon(/.*)?	--                 u:object_r:sysfs_tcon_writable:s0
-# Remove because of restorecon_recursive_symlink /sys/devices/virtual/sec/sec_epen(/.*)?		--	u:object_r:sysfs_sec:s0
+/sys/devices/virtual/sec/sec_epen(/.*)?		--	u:object_r:sysfs_sec:s0
 # Remove because of restorecon_recursive_symlink /sys/devices/virtual/sec(/.*)?      --               u:object_r:sysfs_sec:s0
 #/sys/qemu_trace(/.*)?	--	u:object_r:sysfs_writable:s0
 /sys/kernel/config(/.*)?                              u:object_r:configfs:s0
@@ -1412,7 +1411,6 @@
 /system/bin/factory\.adsp                             u:object_r:factory_adsp_exec:s0
 /system/bin/fsck\.exfat	--	u:object_r:fsck_exec:s0
 /system/bin/icd	u:object_r:icd_exec:s0
-/system/bin/immvibed	u:object_r:immvibed_exec:s0
 /system/bin/insthk	u:object_r:insthk_exec:s0
 /system/bin/imsd	u:object_r:imsd_exec:s0
 /system/bin/ipruleset	u:object_r:ipruleset_exec:s0

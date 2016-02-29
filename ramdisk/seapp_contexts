@@ -22,7 +22,6 @@ user=_app seinfo=shared domain=sec_untrusted_app type=app_data_file levelFrom=us
 user=_app seinfo=release name=com.samsung.android.app.memo domain=sec_untrusted_app type=app_data_file levelFrom=user
 user=_app seinfo=release name=com.android.mms domain=sec_untrusted_app type=app_data_file levelFrom=user
 user=_app seinfo=media domain=sec_untrusted_app type=app_data_file levelFrom=user
-user=shell seinfo=platform name=com.sec.android.gotrace domain=platform_app type=app_data_file levelFrom=user
 user=msgcom seinfo=platform domain=platform_app type=app_data_file levelFrom=user
 user=sendhelpmsg seinfo=platform domain=platform_app type=app_data_file levelFrom=user
 user=cmhservice seinfo=platform domain=platform_app type=app_data_file levelFrom=user
