@@ -114,10 +114,6 @@ static struct bin_attribute fts_brane_dev_attr =
 static unsigned int fts_brane_read_addr = FTS_CMD_STRING_ACCESS;
 #endif
 
-#ifdef CONFIG_TRUSTONIC_TRUSTED_UI
-extern int tui_force_close(uint32_t arg);
-struct fts_ts_info *tui_tsp_info;
-#endif
 #ifdef CONFIG_GLOVE_TOUCH
 enum TOUCH_MODE {
 	FTS_TM_NORMAL = 0,
@@ -862,7 +858,9 @@ static int fts_init(struct fts_ts_info *info)
 	unsigned char val[16];
 	unsigned char regAdd[8];
 	int rc;
-
+	#ifdef FTS_SUPPORT_PARTIAL_DOWNLOAD
+	bool fpat = false;
+	#endif
 	fts_systemreset(info);
 
 	rc = fts_wait_for_ready(info);
@@ -925,6 +923,7 @@ static int fts_init(struct fts_ts_info *info)
 	info->mainscr_disable = false;
 
 	info->deepsleep_mode = false;
+	info->wirelesscharger_mode = false;
 	info->lowpower_mode = false;
 	info->lowpower_flag = 0x00;
 	info->fts_power_state = 0;
@@ -945,6 +944,13 @@ static int fts_init(struct fts_ts_info *info)
 	fts_command(info, FLUSHBUFFER);
 
 	fts_interrupt_set(info, INT_ENABLE);
+
+
+#ifdef FTS_SUPPORT_PARTIAL_DOWNLOAD
+	fpat = get_PureAutotune_status(info);
+	if(fpat) info->pat = 1;
+	else info->pat = 0;
+#endif
 
 	memset(val, 0x0, 4);
 	regAdd[0] = READ_STATUS;
@@ -1687,9 +1693,6 @@ static int fts_irq_enable(struct fts_ts_info *info,
 		}
 	}
 
-#ifdef CONFIG_TRUSTONIC_TRUSTED_UI
-	tui_tsp_info = info;
-#endif
 	return retval;
 }
 
@@ -2036,13 +2039,6 @@ static int fts_setup_drv_data(struct i2c_client *client)
 #endif
 	info->delay_time = 300;
 	INIT_DELAYED_WORK(&info->reset_work, fts_reset_work);
-
-#ifdef CONFIG_TRUSTONIC_TRUSTED_UI
-void trustedui_mode_on(void){
-	tsp_debug_info(true, &tui_tsp_info->client->dev, "%s, release all finger..", __func__);
-	fts_release_all_finger(tui_tsp_info);
-}
-#endif
 
 #ifdef CONFIG_SEC_DEBUG_TSP_LOG
 	INIT_DELAYED_WORK(&info->debug_work, dump_tsp_rawdata);
@@ -2438,6 +2434,8 @@ static int fts_input_open(struct input_dev *dev)
 {
 	struct fts_ts_info *info = input_get_drvdata(dev);
 	int retval;
+	unsigned char regAdd[2] = {0xC2, 0x10};
+	int rc;
 
 	tsp_debug_dbg(false, &info->client->dev, "%s\n", __func__);
 
@@ -2455,6 +2453,10 @@ static int fts_input_open(struct input_dev *dev)
 
 	tsp_debug_err(true, &info->client->dev, "FTS cmd after wakeup : h%d \n", info->retry_hover_enable_after_wakeup);
 
+#ifdef FTS_SUPPORT_PARTIAL_DOWNLOAD
+	tsp_debug_err(true, &info->client->dev, "FTS PAT(%d)\n", info->pat);
+#endif
+
 	if(info->retry_hover_enable_after_wakeup == 1){
 		unsigned char regAdd[4] = {0xB0, 0x01, 0x29, 0x41};
 		fts_write_reg(info, &regAdd[0], 4);
@@ -2462,6 +2464,10 @@ static int fts_input_open(struct input_dev *dev)
 		info->hover_enabled = true;
 	}
 
+	if (info->wirelesscharger_mode ==0) regAdd[0] = 0xC2;
+	else regAdd[0] = 0xC1;
+	tsp_debug_info(true, &info->client->dev, "%s: Set W-Charger Status CMD[%2X]\n",__func__,regAdd[0]);
+	rc = fts_write_reg(info, regAdd, 2);
 out:
 	return 0;
 }
@@ -2809,22 +2815,6 @@ static int fts_stop_device(struct fts_ts_info *info)
 	}
 #endif
 
-#ifdef CONFIG_TRUSTONIC_TRUSTED_UI
-	if(TRUSTEDUI_MODE_TUI_SESSION & trustedui_get_current_mode()){
-		tsp_debug_err(true, &info->client->dev,
-			"%s TUI cancel event call!\n", __func__);
-		fts_delay(100);
-		tui_force_close(1);
-		fts_delay(200);
-		if(TRUSTEDUI_MODE_TUI_SESSION & trustedui_get_current_mode()){
-			tsp_debug_err(true, &info->client->dev,
-				"%s TUI flag force clear!\n", __func__);
-			trustedui_clear_mask(TRUSTEDUI_MODE_VIDEO_SECURED|TRUSTEDUI_MODE_INPUT_SECURED);
-			trustedui_set_mode(TRUSTEDUI_MODE_OFF);
-		}
-	}
-#endif
-
 	mutex_lock(&info->device_mutex);
 
 	if (info->touch_stopped) {
@@ -2911,22 +2901,6 @@ static int fts_start_device(struct fts_ts_info *info)
 {
 	tsp_debug_info(true, &info->client->dev, "%s %s\n",
 			__func__, info->lowpower_mode ? "exit low power mode" : "");
-
-#ifdef CONFIG_TRUSTONIC_TRUSTED_UI
-	if(TRUSTEDUI_MODE_TUI_SESSION & trustedui_get_current_mode()){
-		tsp_debug_err(true, &info->client->dev,
-			"%s TUI cancel event call!\n", __func__);
-		fts_delay(100);
-		tui_force_close(1);
-		fts_delay(200);
-		if(TRUSTEDUI_MODE_TUI_SESSION & trustedui_get_current_mode()){
-			tsp_debug_err(true, &info->client->dev,
-				"%s TUI flag force clear!\n", __func__);
-			trustedui_clear_mask(TRUSTEDUI_MODE_VIDEO_SECURED|TRUSTEDUI_MODE_INPUT_SECURED);
-			trustedui_set_mode(TRUSTEDUI_MODE_OFF);
-		}
-	}
-#endif
 
 #ifdef CONFIG_TRUSTONIC_TRUSTED_UI
 	if(TRUSTEDUI_MODE_TUI_SESSION & trustedui_get_current_mode()){

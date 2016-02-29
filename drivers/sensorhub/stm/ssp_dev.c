@@ -14,7 +14,6 @@
  */
 
 #include "ssp_dev.h"
-
 /*
 extern int poweroff_charging;
 extern int boot_mode_recovery;
@@ -36,6 +35,17 @@ void ssp_enable(struct ssp_data *data, bool enable)
 	} else
 		ssp_errf("enable error");
 }
+
+u64 get_current_timestamp(void)
+{
+	u64 timestamp;
+	struct timespec ts;
+	ts = ktime_to_timespec(ktime_get_boottime());
+	timestamp = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+
+	return timestamp;
+}
+
 /************************************************************************/
 /* interrupt happened due to transition/change of SSP MCU		*/
 /************************************************************************/
@@ -43,10 +53,9 @@ void ssp_enable(struct ssp_data *data, bool enable)
 static irqreturn_t sensordata_irq_thread_fn(int iIrq, void *dev_id)
 {
 	struct ssp_data *data = dev_id;
-	struct timespec ts;
 
-	ts = ktime_to_timespec(ktime_get_boottime());
-	data->timestamp = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+	data->timestamp = get_current_timestamp();
+	//pr_err("[SSP]: %s - %lld\n", __func__, data->timestamp);
 
 	if (gpio_get_value(data->mcu_int1)) {
 		ssp_info("MCU int HIGH");
@@ -66,9 +75,20 @@ static void initialize_variable(struct ssp_data *data)
 {
 	int iSensorIndex;
 
+	int data_len[SENSOR_MAX] = SENSOR_DATA_LEN;
+	int report_mode[SENSOR_MAX] = SENSOR_REPORT_MODE;
+	memcpy(&data->data_len, data_len, sizeof(data->data_len));
+	memcpy(&data->report_mode, report_mode, sizeof(data->report_mode));
+
+	data->cameraGyroSyncMode = false;
+	data->ts_stacked_cnt = 0;
+	data->ts_stacked_offset = 0;
+	data->ts_irq_last = 0ULL;
+
 	for (iSensorIndex = 0; iSensorIndex < SENSOR_MAX; iSensorIndex++) {
 		data->adDelayBuf[iSensorIndex] = DEFUALT_POLLING_DELAY;
 		data->aiCheckStatus[iSensorIndex] = INITIALIZATION_STATE;
+		data->bIsFirstData[iSensorIndex] = false;
 	}
 
 	data->uSensorState = NORMAL_SENSOR_STATE_K;
@@ -80,12 +100,41 @@ static void initialize_variable(struct ssp_data *data)
 	data->buf[GYROSCOPE_SENSOR].gyro_dps = GYROSCOPE_DPS2000;
 	data->uIr_Current = DEFUALT_IR_CURRENT;
 
+#if 1
+    if(sec_debug_get_debug_level() > 0)
+    {
+        data->bMcuDumpMode = true;
+        ssp_info("Mcu Dump Enabled");
+    }
+
+#else
 #if CONFIG_SEC_DEBUG
 	data->bMcuDumpMode = sec_debug_is_enabled();
 #endif
+#endif
 	INIT_LIST_HEAD(&data->pending_list);
 
+	data->gyro_lib_state = GYRO_CALIBRATION_STATE_NOT_YET;
+
+	// HIFI batching wakeup issue
+	data->resumeTimestamp = 0;
+	data->bIsResumed = false;
+
 	initialize_function_pointer(data);
+}
+
+static int initialize_6axis(struct ssp_data *data)
+{
+	int new_acc_type = get_6axis_type(data);
+
+	if (new_acc_type < 0)
+		ssp_errf("get_6axis_type failed");
+	else
+		data->acc_type = new_acc_type;
+
+	ssp_infof("6axis type = %d", data->acc_type);
+
+	return SUCCESS;
 }
 
 int initialize_mcu(struct ssp_data *data)
@@ -112,6 +161,18 @@ int initialize_mcu(struct ssp_data *data)
 		goto out;
 	}
 
+	if (data->accel_dot >= 0) {
+		iRet = set_6axis_dot(data);
+		if (iRet < 0) {
+			ssp_errf("set_6axis_dot failed");
+			goto out;
+		}
+	}
+
+	iRet = initialize_6axis(data);
+	if (iRet < 0)
+		ssp_errf("initialize_6axis err(%d)", iRet);
+
 #ifdef CONFIG_SENSORS_MULTIPLE_GLASS_TYPE
     	iRet = set_glass_type(data);
 	if (iRet < 0) {
@@ -119,6 +180,15 @@ int initialize_mcu(struct ssp_data *data)
 		goto out;
 	}
 #endif
+
+	/* Hall IC threshold */
+	if (data->hall_threshold[0]) {
+		iRet = set_hall_threshold(data);
+		if (iRet < 0) {
+			ssp_errf("set_hall_threshold failed");
+			goto out;
+		}
+	}
 
 	data->uSensorState = get_sensor_scanning_info(data);
 	if (data->uSensorState == 0) {
@@ -220,11 +290,14 @@ static int ssp_parse_dt(struct device *dev,
 	if (of_property_read_u32(np, "ssp,acc-position", &data->accel_position))
 		data->accel_position = 0;
 
+	if (of_property_read_u32(np, "ssp,acc-dot", &data->accel_dot))
+		data->accel_dot = -1;
+
 	if (of_property_read_u32(np, "ssp,mag-position", &data->mag_position))
 		data->mag_position = 0;
 
-	ssp_info("acc-posi[%d] mag-posi[%d]",
-			data->accel_position, data->mag_position);
+	ssp_info("acc-posi[%d] acc-dot[%d] mag-posi[%d]",
+			data->accel_position, data->accel_dot, data->mag_position);
 
 	/* prox thresh */
 	if (of_property_read_u32(np, "ssp,prox-hi_thresh",
@@ -239,7 +312,7 @@ static int ssp_parse_dt(struct device *dev,
 		data->uProxHiThresh_default, data->uProxLoThresh_default);
 
 #ifdef CONFIG_SENSORS_MULTIPLE_GLASS_TYPE
-    	if (of_property_read_u32(np, "ssp-glass-type", &data->glass_type))
+	if (of_property_read_u32(np, "ssp-glass-type", &data->glass_type))
 		    data->glass_type = 0;
 #endif
 
@@ -259,6 +332,17 @@ static int ssp_parse_dt(struct device *dev,
 	if (of_property_read_u8_array(np, "ssp,mag-array",
 		data->pdc_matrix, sizeof(data->pdc_matrix))) {
 		ssp_err("no mag-array, set as 0");
+	}
+
+	/* Hall IC threshold */
+	if (of_property_read_u16_array(np, "ssp-hall-threshold",
+		data->hall_threshold, ARRAY_SIZE(data->hall_threshold))) {
+		ssp_err("no hall-threshold, set as 0");
+	} else {
+		ssp_info("hall thr: %d %d %d %d %d",
+			data->hall_threshold[0], data->hall_threshold[1],
+			data->hall_threshold[2], data->hall_threshold[3],
+			data->hall_threshold[4]);
 	}
 
 	/* set off gpio pins */
@@ -323,6 +407,9 @@ static int ssp_resume(struct device *dev)
 	ssp_infof();
 	enable_debug_timer(data);
 
+	data->resumeTimestamp = get_current_timestamp();
+	data->bIsResumed = true;
+
 	if (SUCCESS != ssp_send_cmd(data, MSG2SSP_AP_STATUS_RESUME, 0))
 		ssp_errf("MSG2SSP_AP_STATUS_RESUME failed");
 
@@ -375,13 +462,13 @@ static int ssp_probe(struct spi_device *spi)
 		iRet = -ENODEV;
 		goto err_setup;
 	}
-
 	data->fw_dl_state = FW_DL_STATE_NONE;
 	data->spi = spi;
 	spi_set_drvdata(spi, data);
 
 	mutex_init(&data->comm_mutex);
 	mutex_init(&data->pending_mutex);
+	mutex_init(&data->enable_mutex);
 
 	pr_info("\n#####################################################\n");
 
@@ -436,6 +523,16 @@ static int ssp_probe(struct spi_device *spi)
 			goto err_read_reg;
 		}
 	}
+	/* HIFI Sensor + Batch Support */
+	mutex_init(&data->batch_events_lock);
+
+	data->batch_wq = create_singlethread_workqueue("ssp_batch_wq");
+	if (!data->batch_wq)
+	{
+		iRet = -1;
+		pr_err("[SSP]: %s - could not create batch workqueue\n", __func__);
+		goto err_create_batch_workqueue;
+	}
 
 	ssp_infof("probe success!");
 
@@ -452,8 +549,13 @@ static int ssp_probe(struct spi_device *spi)
 	data->bProbeIsDone = true;
 	iRet = 0;
 
+	set_gyro_cal_lib_enable(data, true);
+
 	goto exit;
 
+err_create_batch_workqueue:
+	destroy_workqueue(data->batch_wq);
+	mutex_destroy(&data->batch_events_lock);
 err_read_reg:
 	remove_sysfs(data);
 err_sysfs_create:
@@ -467,6 +569,7 @@ err_input_register_device:
 	wake_lock_destroy(&data->ssp_wake_lock);
 	mutex_destroy(&data->comm_mutex);
 	mutex_destroy(&data->pending_mutex);
+	mutex_destroy(&data->enable_mutex);
 
 err_setup:
 	kfree(data);
@@ -496,11 +599,17 @@ static void ssp_shutdown(struct spi_device *spi_dev)
 	if (SUCCESS != ssp_send_cmd(data, MSG2SSP_AP_STATUS_SHUTDOWN, 0))
 		ssp_errf("MSG2SSP_AP_STATUS_SHUTDOWN failed");
 
-	ssp_enable(data, false);
+	data->bSspShutdown = true;
+	disable_irq_nosync(data->iIrq);
+	disable_irq_wake(data->iIrq);
+
 	clean_pending_list(data);
 
 	free_irq(data->iIrq, data);
 	gpio_free(data->mcu_int1);
+
+	destroy_workqueue(data->batch_wq); /* HIFI */
+	mutex_destroy(&data->batch_events_lock);
 
 	remove_sysfs(data);
 
@@ -513,6 +622,7 @@ static void ssp_shutdown(struct spi_device *spi_dev)
 	wake_lock_destroy(&data->ssp_wake_lock);
 	mutex_destroy(&data->comm_mutex);
 	mutex_destroy(&data->pending_mutex);
+	mutex_destroy(&data->enable_mutex);
 	toggle_mcu_reset(data);
 	ssp_infof("done");
 exit:
@@ -547,7 +657,18 @@ static struct spi_driver ssp_driver = {
 	},
 };
 
-module_spi_driver(ssp_driver);
+static int __init ssp_init(void)
+{
+	return spi_register_driver(&ssp_driver);
+}
+
+static void __exit ssp_exit(void)
+{
+	spi_unregister_driver(&ssp_driver);
+}
+
+late_initcall(ssp_init);
+module_exit(ssp_exit);
 MODULE_DESCRIPTION("Seamless Sensor Platform(SSP) dev driver");
 MODULE_AUTHOR("Samsung Electronics");
 MODULE_LICENSE("GPL");

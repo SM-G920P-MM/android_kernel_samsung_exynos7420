@@ -49,6 +49,8 @@ modules.builtin
 /*.img
 !/dtb.img
 /*.zip
+/*.tar
+/*.tar.md5
 !/kernelzip/**
 
 #

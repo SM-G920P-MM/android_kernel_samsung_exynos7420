@@ -789,7 +789,7 @@
 			1912>;
 	};
 
-	sec_thermistor@2 {
+	sec_thermistor@1 {
 		status = "okay";
 
 		adc_array = <205 216 227 238 249 260 271 282 293 303

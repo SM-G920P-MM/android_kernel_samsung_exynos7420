@@ -22,11 +22,60 @@ static struct class *mst_drv_class;
 struct device *mst_drv_dev;
 static int escape_loop = 1;
 static int rt;
+static int wireless_charging_state = 0;
 static struct wake_lock   mst_wakelock;
 EXPORT_SYMBOL_GPL(mst_drv_dev);
+extern void wireless_of_mst_hw_onoff(bool on){
+	struct regulator *regulator3_0;
+	int ret;
+
+	printk("%s mst-drv : mst_power_onoff : %d\n", __func__, on);
+
+	regulator3_0 = regulator_get(NULL, MST_LDO3_0);
+	if (IS_ERR(regulator3_0)) {
+		printk("%s : regulator 3.0 is not available\n", __func__);
+		return;
+	}
+
+	if (mst_power_on == on) {
+		printk("mst-drv : mst_power_onoff : already %d\n", on);
+		regulator_put(regulator3_0);
+		return;
+	}
+
+	mst_power_on = on;
+
+	printk("mst-drv : mst_power_onoff : %d\n", on);
+
+	if(regulator3_0 == NULL){
+		printk(KERN_ERR "%s: regulator3_0 is invalid(NULL)\n", __func__);
+		return ;
+	}
+
+	if(on) {
+		ret = regulator_enable(regulator3_0);
+		wireless_charging_state = 1;
+		if (ret < 0) {
+			printk("%s : regulator 3.0 is not enable\n", __func__);
+			wireless_charging_state = 0;
+		}
+	}else{
+		regulator_disable(regulator3_0);
+		wireless_charging_state = 0;
+	}
+
+	regulator_put(regulator3_0);
+}
+EXPORT_SYMBOL_GPL(wireless_of_mst_hw_onoff);
+
 static void of_mst_hw_onoff(bool on){
 	struct regulator *regulator3_0;
 	int ret;
+	if(wireless_charging_state){
+		printk("%s : wirelss_charging state on!!! \n", __func__);
+		return;
+	}
+
 	regulator3_0 = regulator_get(NULL, MST_LDO3_0);
 	if (IS_ERR(regulator3_0)) {
 		printk("%s : regulator 3.0 is not available\n", __func__);
@@ -60,7 +109,11 @@ static ssize_t show_mst_drv(struct device *dev,
 	if (!dev)
         return -ENODEV;
     // todo
-    return sprintf(buf, "%s\n", "MST drv data");
+    if(escape_loop == 0){
+		return sprintf(buf, "%s\n", "activating");
+    }else{
+		return sprintf(buf, "%s\n", "waiting");
+    }
 }
 static ssize_t store_mst_drv(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
@@ -198,6 +251,7 @@ static int sec_mst_notifier(struct notifier_block *self,
 	return NOTIFY_OK;
 }
 #endif
+
 static struct of_device_id mst_match_ldo_table[] = {
 	{ .compatible = "sec-mst",},
 	{},

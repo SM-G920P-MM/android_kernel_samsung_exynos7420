@@ -1215,6 +1215,10 @@ static int noble_aif2_hw_params(struct snd_pcm_substream *substream,
 		}
 	}
 
+	/* Set Sample rate 1 as 48k */
+	snd_soc_update_bits(priv->codec, ARIZONA_SAMPLE_RATE_1,
+			    ARIZONA_SAMPLE_RATE_1_MASK, 0x3);
+
 	return 0;
 }
 
@@ -1975,8 +1979,15 @@ static int noble_stop_sysclk(struct snd_soc_card *card)
 {
 	struct arizona_machine_priv *priv = card->drvdata;
 	int ret;
+	struct snd_soc_dai *codec_dai = card->rtd[0].codec_dai;
 
 	dev_info(card->dev, "%s\n", __func__);
+
+	if (codec_dai->playback_active || codec_dai->capture_active) {
+		dev_info(card->dev, "skip %s: active playback %d capture %d\n",
+			__func__, codec_dai->playback_active, codec_dai->capture_active);
+		return 0;
+	}
 
 	/* Clear SYSCLK */
 	ret = snd_soc_codec_set_sysclk(priv->codec, ARIZONA_CLK_SYSCLK,
