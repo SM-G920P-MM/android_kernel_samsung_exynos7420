@@ -525,6 +525,7 @@ on fs
     chown system radio /sys/class/lcd/panel/lcd_type
     chown system system /sys/class/lcd/panel/siop_enable
     chown system system /sys/class/lcd/panel/temperature
+    chown system radio /sys/class/lcd/panel/mcd_mode
     chown system media_rw /sys/class/backlight/panel/weakness_hbm_comp
     chown system system /sys/class/lcd/panel/ldu_correction
 
@@ -743,12 +744,6 @@ on fs
 # TSP & Pressure Sensor
     chown system system /sys/class/sec/tsp/brane
     chmod 0660 /sys/class/sec/tsp/brane
-
-# DIAG
-service DIAG-daemon /system/bin/diagexe
-    class main
-    user root
-    group system radio inet net_raw
 
 # ARGOSD
 service argos-daemon /system/bin/argosd

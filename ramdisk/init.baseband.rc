@@ -30,12 +30,6 @@ service cpboot-daemon /sbin/cbd -d -t ss333 -b s -m l -P platform/15570000.ufs/b
 on property:persist.sys.cpboot=disable
     stop cpboot-daemon
 
-#RIL diagexe for CP
-service DIAG-daemon /system/bin/diagexe
-    class main
-    user root
-    group system radio inet net_raw
-
 on property:ro.debug_level=0x494d
 	write /d/tracing/buffer_size_kb 1408
         write /d/tracing/events/modem_if/mif_log/enable 1
