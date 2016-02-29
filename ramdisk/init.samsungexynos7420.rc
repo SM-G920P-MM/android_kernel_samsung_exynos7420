@@ -1,3 +1,4 @@
+
 import init.samsungexynos7420.usb.rc
 import init.wifi.rc
 import init.baseband.rc
@@ -14,59 +15,21 @@ on init
     mkdir /preload 0771 system system
 
     # See storage config details at http://source.android.com/tech/storage/
-    mkdir /mnt/media_rw/extSdCard 0700 media_rw media_rw
-    mkdir /mnt/media_rw/UsbDriveA 0700 media_rw media_rw
-    mkdir /mnt/media_rw/UsbDriveB 0700 media_rw media_rw
-    mkdir /mnt/media_rw/UsbDriveC 0700 media_rw media_rw
-    mkdir /mnt/media_rw/UsbDriveD 0700 media_rw media_rw
-    mkdir /mnt/media_rw/UsbDriveE 0700 media_rw media_rw
-    mkdir /mnt/media_rw/UsbDriveF 0700 media_rw media_rw
-
-    # See storage config details at http://source.android.com/tech/storage/
     mkdir /mnt/shell/emulated 0700 shell shell
     mkdir /storage/emulated 0555 root root
 
-    export EXTERNAL_STORAGE /storage/emulated/legacy
-    export EMULATED_STORAGE_SOURCE /mnt/shell/emulated
-    export EMULATED_STORAGE_TARGET /storage/emulated
-
     # Support legacy paths
-    symlink /storage/emulated/legacy /sdcard
-    symlink /storage/emulated/legacy /mnt/sdcard
-    symlink /storage/emulated/legacy /storage/sdcard0
-    symlink /mnt/shell/emulated/0 /storage/emulated/legacy
+    symlink /sdcard /mnt/sdcard
 
-    # map "real" external storages paths also in same way. backwards compatibility.
-    symlink /storage/extSdCard /mnt/extSdCard
-    symlink /storage/UsbDriveA /mnt/UsbDriveA
-    symlink /storage/UsbDriveB /mnt/UsbDriveB
-    symlink /storage/UsbDriveC /mnt/UsbDriveC
-    symlink /storage/UsbDriveD /mnt/UsbDriveD
-    symlink /storage/UsbDriveE /mnt/UsbDriveE
-    symlink /storage/UsbDriveF /mnt/UsbDriveF
+    export EXTERNAL_STORAGE /sdcard
 
     #export SECONDARY_STORAGE /storage/extSdCard
-
-    mkdir /storage/extSdCard 0700 root root
-    mkdir /storage/UsbDriveA 0700 root root
-    mkdir /storage/UsbDriveB 0700 root root
-    mkdir /storage/UsbDriveC 0700 root root
-    mkdir /storage/UsbDriveD 0700 root root
-    mkdir /storage/UsbDriveE 0700 root root
-    mkdir /storage/UsbDriveF 0700 root root
 
     symlink /data/app /factory
 
     symlink /dev/block/platform/15570000.ufs/by-name/STEADY /dev/block/steady
     symlink /dev/block/platform/15570000.ufs/by-name/PERSISTENT /dev/block/persistent
 
-#Private Mode
-    mkdir /mnt/shell/privatemode 0700 system system
-    mkdir /storage/Private 0000 system system
-
-on post-fs
-    # Increase max readahead size to 256 KB
-    write /sys/block/sda/queue/read_ahead_kb 256
 
 on post-fs-data
     mkdir /data/media 0770 media_rw media_rw
@@ -90,10 +53,11 @@ on post-fs-data
     chown system radio /efs/maxim/temp_cal
     chown system radio /efs/maxim/rdc_cal
     chmod 0660 /efs/maxim/temp_cal
-    chmod 0660 /efs/maxim/rdc_cal 
+    chmod 0660 /efs/maxim/rdc_cal
     chown media system /data/firmware
 
     # Permissions Camera
+    mkdir /data/camera 0770 media system
     chown system radio /sys/class/camera/rear/rear_camfw
     chown system radio /sys/class/camera/rear/rear_camfw_full
     chown system radio /sys/class/camera/rear/rear_checkfw_user
@@ -107,6 +71,7 @@ on post-fs-data
     chown system radio /sys/class/camera/rear/fw_update
     chown system radio /sys/class/camera/rear/from_write
     chown system radio /sys/class/camera/flash/rear_flash
+    chown media system /sys/class/camera/flash/torch_flash
     chown system radio /sys/class/camera/front/front_camfw
     chown system radio /sys/class/camera/front/front_camfw_full
     chown system radio /sys/class/camera/front/front_checkfw_factory
@@ -147,6 +112,10 @@ on post-fs-data
     chown system audio /sys/class/earsmart/control/extra_volume
     chown system audio /sys/class/earsmart/control/always_stream_fs_on
 
+    #Private Mode
+    mkdir /mnt/shell/privatemode 0700 system system
+    mkdir /storage/Private 0000 system system
+
 # permission for CHARGING
    chown system radio /sys/class/power_supply/battery/batt_discharging_check
    chown system radio /sys/class/power_supply/battery/batt_discharging_check_adc
@@ -158,13 +127,18 @@ on post-fs-data
 #Private Mode
     mkdir /data/privatemode 0770 system system
     chown system system /data/privatemode
-    #restorecon /data/privatemode
+    restorecon /data/privatemode
 
 #NFC : create data/nfc for nv storage
     mkdir /data/nfc 0700 nfc nfc
     mkdir /data/nfc/param 0700 nfc nfc
 
 on boot
+    # override init.rc to keep plenty of large order chunks around
+    # to improve allocation times
+#    write /proc/sys/vm/min_free_kbytes 32768
+#    write /proc/sys/vm/min_free_order_shift 1
+
     #setprop ro.radio.noril yes
 
     # IPSec for VOLTE
@@ -390,28 +364,9 @@ on boot
     write /sys/devices/system/cpu/cpu6/online 1
     write /sys/devices/system/cpu/cpu7/online 1
 
-    # Configure cafactive
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/timer_rate 20000
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/timer_slack 20000
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/min_sample_time 40000
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/hispeed_freq 900000
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/go_hispeed_load 85
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/target_loads 75
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/above_hispeed_delay 19000
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/boostpulse_duration 40000
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/max_freq_hysteresis 100000
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/timer_rate 20000
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/timer_slack 20000
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/min_sample_time 40000
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/hispeed_freq 1200000
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/go_hispeed_load 89
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/target_loads "65 1500000:75"
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/above_hispeed_delay "59000 1300000:39000 1700000:19000"
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/boostpulse_duration 40000
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/max_freq_hysteresis 100000
     # io_is_busy
-    write /sys/devices/system/cpu/cpu0/cpufreq/cafactive/io_is_busy 1
-    write /sys/devices/system/cpu/cpu4/cpufreq/cafactive/io_is_busy 1
+    write /sys/devices/system/cpu/cpu0/cpufreq/interactive/io_is_busy 1
+    write /sys/devices/system/cpu/cpu4/cpufreq/interactive/io_is_busy 1
     write /sys/devices/virtual/sec/sec_slow/io_is_busy 1
 
     # CPU Idle
@@ -427,10 +382,7 @@ on boot
     chown bluetooth net_bt_stack /dev/ttySAC4
     chmod 0660 /dev/ttySAC4
 # mobicore
-    mkdir /data/app/mcRegistry 0775 system system
-    chmod 0660 /dev/s5p-smem
     chmod 0660 /dev/t-base-tui
-    chown system system /dev/s5p-smem
     chown system system /dev/t-base-tui
 
 # sem_daemon permission
@@ -461,17 +413,6 @@ on boot
 	# MSP FactoryApp
 	mkdir /efs/FactoryApp 0775 system system
 
-# lcd a3-line
-    copy /system/vendor/firmware/a3_line_rev1.dat /efs/FactoryApp/a3_line_rev1.dat
-    copy /system/vendor/firmware/a3_line_rev2.dat /efs/FactoryApp/a3_line_rev2.dat
-    copy /system/vendor/firmware/a2_line_rev2.dat /efs/FactoryApp/a2_line_rev2.dat
-    chown system system /efs/FactoryApp/a3_line_rev1.dat
-    chown system system /efs/FactoryApp/a3_line_rev2.dat
-    chown system system /efs/FactoryApp/a2_line_rev2.dat
-    chmod 0640 /efs/FactoryApp/a3_line_rev1.dat
-    chmod 0640 /efs/FactoryApp/a3_line_rev2.dat
-    chmod 0640 /efs/FactoryApp/a2_line_rev2.dat
-
 # permissions for bluetooth.
     setprop ro.bt.bdaddr_path "/efs/bluetooth/bt_addr"
     chown bluetooth net_bt_stack ro.bt.bdaddr_path
@@ -488,18 +429,18 @@ on boot
     chown system system /dev/ttyGS2
     chown system system /dev/ttyGS3
 
-# Permissions for usb_lock
-    chown system radio /sys/class/android_usb/android0/usb_lock
-
 # On-Board DM
     chmod 6755 /system/bin/dmm_v2
 
 # SSWAP
-    write /proc/sys/vm/swappiness 130
+    write /proc/sys/vm/swappiness 200
 
     # FM Radio
     chmod 0640 /dev/fmradio
     chown system system /dev/fmradio
+
+#MST HW Support
+    setprop ro.mst.support 1
 
 #Private Mode
 service privatemode /system/bin/sdcard -r /data/privatemode /mnt/shell/privatemode 1000 1000
@@ -584,8 +525,8 @@ on fs
     chown system radio /sys/class/lcd/panel/lcd_type
     chown system system /sys/class/lcd/panel/siop_enable
     chown system system /sys/class/lcd/panel/temperature
-    chown system radio /sys/class/lcd/panel/mcd_mode
     chown system media_rw /sys/class/backlight/panel/weakness_hbm_comp
+    chown system system /sys/class/lcd/panel/ldu_correction
 
 # Permissions for LCD HMT
     chown system system /sys/class/lcd/panel/hmt_on
@@ -601,6 +542,7 @@ on fs
     chown system system /sys/class/mdnie/mdnie/accessibility
     chown system system /sys/class/mdnie/mdnie/auto_brightness
     chown system system /sys/class/mdnie/mdnie/sensorRGB
+    chown system system /sys/class/mdnie/mdnie/mdnie_ldu
 
 # Permissions for System LSI NFC
 # NFC : Permissions for NFC
@@ -621,6 +563,9 @@ on fs
 # Permissions for S.LSI ESE
     chmod 0660 /dev/p3
     chown system system /dev/p3
+
+# NFC : create data/nfc for nv storage
+    mkdir /efs/sec_efs/nfc 0500 nfc nfc
 
 # terminal mode
     chmod 0660 /sys/class/android_usb/android0/terminal_version
@@ -675,6 +620,7 @@ on fs
     chown system radio /sys/class/sensors/barometer_sensor/vendor
     chown system radio /sys/class/sensors/barometer_sensor/name
     chown system radio /sys/class/sensors/barometer_sensor/calibration
+    chown system radio /sys/class/sensors/barometer_sensor/temperature
 
 # Magnetic_sensor
     chown system radio /sys/class/sensors/magnetic_sensor/raw_data
@@ -768,6 +714,7 @@ on fs
     chown system radio /sys/class/sensors/ssp_sensor/motor_test_poll_delay
     chown system radio /sys/class/sensors/ssp_sensor/ssp_flush
     chown system radio /sys/class/sensors/ssp_sensor/int_gyro_enable
+    chown system radio /sys/class/sensors/ssp_sensor/sensor_state
     chmod 0600 /dev/batch_io
     chown system system /dev/batch_io
 
@@ -796,8 +743,12 @@ on fs
 # TSP & Pressure Sensor
     chown system system /sys/class/sec/tsp/brane
     chmod 0660 /sys/class/sec/tsp/brane
-    chown system system /dev/i2c-7
-    chmod 0660 /dev/i2c-7
+
+# DIAG
+service DIAG-daemon /system/bin/diagexe
+    class main
+    user root
+    group system radio inet net_raw
 
 # ARGOSD
 service argos-daemon /system/bin/argosd
@@ -814,8 +765,9 @@ service prepare_param /system/bin/prepare_param.sh /dev/block/platform/15570000.
     class core
     user root
     group root
-    #seclabel u:r:prepare_param:s0
+    seclabel u:r:prepare_param:s0
     oneshot
+
 
 # SENSOR FRAMEWORK : starts fingerprintService
 service vcsFPService /system/bin/vcsFPService
@@ -823,56 +775,16 @@ service vcsFPService /system/bin/vcsFPService
     user system
     group system
 
-# BIO FRAMEWORK : starts bio auth service
-service bauthserver /system/bin/bauthserver
+# FINGERPRINT FRAMEWORK : starts fingerprintd
+service fingerprintd /system/bin/fingerprintd
     class late_start
     user system
     group system
 
-# virtual sdcard daemon running as media_rw (1023)
-service sdcard /system/bin/sdcard -u 1023 -g 1023 -l -r /data/media /mnt/shell/emulated
-    class late_start
-    oneshot
-
-service fuse_extSdCard /system/bin/sdcard -u 1023 -g 1023 -w 1023 -d -f /mnt/media_rw/extSdCard /storage/extSdCard
-    class late_start
-    disabled
-    oneshot
-
-service fuse_UsbDriveA /system/bin/sdcard -u 1023 -g 1023 -d -f /mnt/media_rw/UsbDriveA /storage/UsbDriveA
-    class late_start
-    disabled
-    oneshot
-
-service fuse_UsbDriveB /system/bin/sdcard -u 1023 -g 1023 -d -f /mnt/media_rw/UsbDriveB /storage/UsbDriveB
-    class late_start
-    disabled
-    oneshot
-
-service fuse_UsbDriveC /system/bin/sdcard -u 1023 -g 1023 -d -f /mnt/media_rw/UsbDriveC /storage/UsbDriveC
-    class late_start
-    disabled
-    oneshot
-
-service fuse_UsbDriveD /system/bin/sdcard -u 1023 -g 1023 -d -f /mnt/media_rw/UsbDriveD /storage/UsbDriveD
-    class late_start
-    disabled
-    oneshot
-
-service fuse_UsbDriveE /system/bin/sdcard -u 1023 -g 1023 -d -f /mnt/media_rw/UsbDriveE /storage/UsbDriveE
-    class late_start
-    disabled
-    oneshot
-
-service fuse_UsbDriveF /system/bin/sdcard -u 1023 -g 1023 -d -f /mnt/media_rw/UsbDriveF /storage/UsbDriveF
-    class late_start
-    disabled
-    oneshot
-
 # Set watchdog timer to 30 seconds and pet it every 10 seconds to get a 20 second margin
 service watchdogd /sbin/watchdogd 10 20
     class core
-    #seclabel u:r:watchdogd:s0
+    seclabel u:r:watchdogd:s0
 
 # on userdebug and eng builds, enable kgdb on the serial console
 on property:ro.debuggable=1
@@ -913,15 +825,12 @@ on property:ro.bootmode=charger
     wait /dev/block/mounted
     class_start sec-charger
 
-service lpm /system/bin/lpm
-    class sec-charger
-    critical
-
 # Emergency Firmware Update
 service fwup /sbin/ffu -a
     class firmware_update
     user root
     group root
+    seclabel u:r:ffu:s0
     critical
     oneshot
 
@@ -944,7 +853,7 @@ on property:ro.SecEDS.enable=false
     stop TvoutService_C
 
 # umount service
-service umount_service /system/bin/umount /preload
+service umount_service /system/bin/umount -D /preload
     disabled
     oneshot
 
@@ -964,12 +873,14 @@ service cs_service /system/bin/cs
     disabled
 on property:sys.mobicoredaemon.enable=true
     start cs_service
+    write /proc/iccc_ready 1
 
 # SSWAP
-service swapon /sbin/sswap
+service swapon /sbin/sswap -s -f 2560
     class core
     user root
     group root
+    seclabel u:r:sswap:s0
     oneshot
 
 # RTC logging daemon
@@ -977,7 +888,7 @@ service rtc_log /system/bin/rtc_log.sh
     class main
     user system
     group system
-    #seclabel u:r:rtc_log:s0
+    seclabel u:r:rtc_log:s0
     oneshot
 
 # sem_daemon
@@ -1001,6 +912,13 @@ on property:security.semdaemonfinish=1
 # IPSec for VOLTE
 service ipsec-daemon /system/bin/IPSecService
     class main
-    socket ipsec_socket stream 660 system system
+    socket ipsec_socket stream 660 system net_admin
     user system
     group system net_raw inet net_admin
+
+#SLocation
+	service cellgeofenced /system/bin/cellgeofenced
+	class main
+	socket cellgeofence seqpacket 0660 gps system
+	user gps
+	group system inet

@@ -19,10 +19,18 @@
 #include <linux/usb_notify.h>
 #endif
 
+#define OFFSET_CURRENT 150
+
 #undef DEBUG
 
 #define ENABLE 1
 #define DISABLE 0
+
+#if defined(CONFIG_SEC_FACTORY)
+#define WC_CURRENT_WORK_STEP	250
+#else
+#define WC_CURRENT_WORK_STEP	1000
+#endif
 
 static enum power_supply_property max77843_charger_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
@@ -43,6 +51,9 @@ static enum power_supply_property max77843_charger_props[] = {
 	POWER_SUPPLY_PROP_AFC_CHARGER_MODE,
 #endif
 	POWER_SUPPLY_PROP_CHARGE_NOW,
+	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
+	POWER_SUPPLY_PROP_SCOPE,
+	POWER_SUPPLY_PROP_CYCLE_COUNT, /* for is_call_on */
 };
 
 static enum power_supply_property max77843_otg_props[] = {
@@ -71,8 +82,8 @@ static bool max77843_charger_unlock(struct max77843_charger_data *charger)
 		if (chgprot != 0x03) {
 			pr_err("%s: unlock err, chgprot(0x%x), retry(%d)\n",
 					__func__, chgprot, retry_cnt);
-			max77843_write_reg(charger->i2c, MAX77843_CHG_REG_CNFG_06,
-					   (0x03 << 2));
+			max77843_update_reg(charger->i2c, MAX77843_CHG_REG_CNFG_06,
+					(0x03 << 2), (0x03 << 2));
 			need_init = true;
 			msleep(20);
 		} else {
@@ -197,6 +208,10 @@ static int max77843_get_charging_health(struct max77843_charger_data *charger)
 	u8 chg_dtls_00, chg_dtls, reg_data;
 	u8 chg_cnfg_00, chg_cnfg_01 ,chg_cnfg_02, chg_cnfg_04, chg_cnfg_09, chg_cnfg_12;
 
+	/* watchdog kick */
+	max77843_update_reg(charger->i2c, MAX77843_CHG_REG_CNFG_06,
+			MAX77843_WDTCLR, CHG_CNFG_06_WDTCLR_MASK);
+
 	max77843_read_reg(charger->i2c,
 			  MAX77843_CHG_REG_DETAILS_01, &reg_data);
 	reg_data = ((reg_data & MAX77843_BAT_DTLS) >> MAX77843_BAT_DTLS_SHIFT);
@@ -230,7 +245,7 @@ static int max77843_get_charging_health(struct max77843_charger_data *charger)
 		state = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
 		break;
 	default:
-		pr_debug("%s: battery unknown : 0x%d\n", __func__, reg_data);
+		pr_debug("%s: battery unknown : 0x%x\n", __func__, reg_data);
 		state = POWER_SUPPLY_HEALTH_UNKNOWN;
 		break;
 	}
@@ -274,7 +289,7 @@ static int max77843_get_charging_health(struct max77843_charger_data *charger)
 			max77843_set_charger_state(charger, 1);
 		}
 
-		pr_debug("%s: vbus_state : 0x%d, chg_dtls : 0x%d\n", __func__, vbus_state, chg_dtls);
+		pr_debug("%s: vbus_state : 0x%x, chg_dtls : 0x%x\n", __func__, vbus_state, chg_dtls);
 		/*  OVP is higher priority */
 		if (vbus_state == 0x02) { /*  CHGIN_OVLO */
 			pr_debug("%s: vbus ovp\n", __func__);
@@ -330,7 +345,7 @@ static int max77843_get_input_current(struct max77843_charger_data *charger)
 	u8 reg_data;
 	int get_current = 0;
 
-	if (charger->cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
+	if (charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
 		max77843_read_reg(charger->i2c,
 			MAX77843_CHG_REG_CNFG_10, &reg_data);
 		/* AND operation for removing the formal 2bit  */
@@ -439,18 +454,34 @@ static void max77843_change_charge_path(struct max77843_charger_data *charger,
 			cnfg12,	CHG_CNFG_12_CHGINSEL_MASK);
 }
 
+#if defined(CONFIG_WIRELESS_CHARGER_INBATTERY)
+#define CURRENT_STEP	100
+#if defined(CONFIG_SEC_FACTORY)
+#define SLEEP_STEP		50
+#else
+#define SLEEP_STEP		1000
+#endif
+#else
+#define CURRENT_STEP	100
+#define SLEEP_STEP		5
+#endif
+
 static void max77843_set_input_current(struct max77843_charger_data *charger,
 				       int input_current)
 {
 	int quotient, remainder;
 	u8 set_reg, reg_data;
-	int diff_current_now = 0;
-	int quotient_wpc = 0, remainder_wpc = 0;
-	int i =0;
-	static int pre_current_max = 800;
+//	int diff_current_now = 0;
+//	int quotient_wpc = 0, remainder_wpc = 0;
+//	int i =0;
+	if (charger->store_mode &&
+	    (charger->cable_type == POWER_SUPPLY_TYPE_HV_UNKNOWN ||
+	     charger->cable_type == POWER_SUPPLY_TYPE_HV_MAINS ||
+	     charger->cable_type == POWER_SUPPLY_TYPE_HV_ERR))
+		input_current = STORE_MODE_INPUT_CURRENT;
 
 	mutex_lock(&charger->charger_mutex);
-	if (charger->cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
+	if (charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
 		set_reg = MAX77843_CHG_REG_CNFG_10;
 		max77843_read_reg(charger->i2c,
 				  set_reg, &reg_data);
@@ -465,58 +496,24 @@ static void max77843_set_input_current(struct max77843_charger_data *charger,
 	if (input_current <= 0)
 		max77843_set_buck(charger, DISABLE);
 	else {
-		max77843_change_charge_path(charger, charger->cable_type);
+		max77843_change_charge_path(charger, charger->batt_cable_type);
 		max77843_set_buck(charger, ENABLE);
 	}
 
 	if (!input_current) {
 		max77843_write_reg(charger->i2c,
 				   set_reg, reg_data);
-	} else if(charger->cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
+	} else if(charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
+		if (input_current > 1000) /* Max wireless input current limit is 1A */
+			input_current = 1000;
 
-		if (input_current < pre_current_max) {
-			diff_current_now = pre_current_max - input_current;
-			remainder_wpc = diff_current_now % 100;
-			quotient_wpc = diff_current_now / 100;
-
-			for(i=0; i < quotient_wpc; i++)
-			{
-				pre_current_max -= 100;
-				quotient = pre_current_max / 20;
-				reg_data = quotient;
-				max77843_write_reg(charger->i2c,
-						set_reg, reg_data);
-				msleep(5);
-			}
-			pre_current_max -= remainder_wpc;
-			quotient = pre_current_max / 20;
-			reg_data = quotient;
-			max77843_write_reg(charger->i2c,
-					   set_reg, reg_data);
-		} else if (input_current > pre_current_max) {
-			diff_current_now = input_current - pre_current_max;
-			remainder_wpc = diff_current_now % 100;
-			quotient_wpc = diff_current_now / 100;
-			for(i=0; i < quotient_wpc; i++)
-			{
-				pre_current_max += 100;
-				quotient = pre_current_max / 20;
-				reg_data = quotient;
-				max77843_write_reg(charger->i2c,
-						set_reg, reg_data);
-				msleep(5);
-			}
-			pre_current_max += remainder_wpc;
-			quotient = pre_current_max / 20;
-			reg_data = quotient;
-			max77843_write_reg(charger->i2c,
-					   set_reg, reg_data);
+		if (input_current <= 60) {
+			reg_data = 0x03;
 		} else {
-			quotient = pre_current_max / 20;
-			reg_data |= quotient;
-			max77843_write_reg(charger->i2c,
-					   set_reg, reg_data);
+			reg_data = input_current / 20;
 		}
+		max77843_write_reg(charger->i2c,
+		   set_reg, reg_data);
 	} else {
 		input_current = (input_current > charger->charging_current_max) ?
 		charger->charging_current_max : input_current;
@@ -534,10 +531,8 @@ static void max77843_set_input_current(struct max77843_charger_data *charger,
 		max77843_write_reg(charger->i2c,
 				   set_reg, reg_data);
 
-		if ((charger->cable_type == POWER_SUPPLY_TYPE_BATTERY) &&
+		if ((charger->batt_cable_type == POWER_SUPPLY_TYPE_BATTERY) &&
 			(charger->status == POWER_SUPPLY_STATUS_DISCHARGING)) {
-			pre_current_max = charger->pdata->charging_current
-							[POWER_SUPPLY_TYPE_USB].input_current_limit;
 			reg_data = charger->pdata->charging_current
 						[POWER_SUPPLY_TYPE_USB].input_current_limit / 20;
 			max77843_write_reg(charger->i2c,
@@ -583,7 +578,90 @@ static int max77843_check_aicl_state(struct max77843_charger_data *charger)
 	}
 	return 0;
 }
+static int max77843_calc_wc_current(struct max77843_charger_data *charger, int incurr)
+{
+	int input_current = incurr;
+	//int siop_level = charger->iin_current_detecting ? 100 : charger->siop_level;
+	int now_current, avg_current, capacity = 0;
+	union power_supply_propval value;
+	u8 reg_data;
+	int temp = 0;
 
+	/*if (charger->siop_event == SIOP_EVENT_WPC_CALL_START) {
+		if (incurr >= charger->pdata->wireless_cc_cv)
+			input_current = charger->pdata->siop_call_cv_current;
+		else
+			input_current = charger->pdata->siop_call_cc_current;
+	} else if (charger->is_charging) { */
+	pr_debug("%s: cable_type(%d)-----------------\n", __func__, charger->batt_cable_type);
+
+	if(charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
+		if (charger->siop_level < 100) {
+			if(charger->siop_level == 7) { /* for dcm model, 7 is a reseved word */
+				input_current = 200;
+			} else {
+				input_current = SIOP_WIRELESS_INPUT_LIMIT_CURRENT;
+			}
+		} // siop_level < 100 end
+
+		/*if(charger->cable_type == POWER_SUPPLY_TYPE_HV_WIRELESS && sleep_mode) {
+			if(input_current > charger->pdata->sleep_mode_limit_current)
+				input_current = charger->pdata->sleep_mode_limit_current;
+			pr_debug("%s sleep_mode =%d, wpc_temp_mode =%d, in_curr = %d \n", __func__, sleep_mode, wpc_temp_mode, input_current);
+		}*/
+
+		pr_debug("%s: wireless cable type(%d)--------\n", __func__, charger->cable_type);
+
+		/*if(wpc_temp_mode && (input_current > charger->pdata->wpc_charging_limit_current) )
+			input_current = charger->pdata->wpc_charging_limit_current;*/
+
+		/* WPC_CV MODE */
+		max77843_read_reg(charger->i2c,
+					  MAX77843_CHG_REG_DETAILS_01, &reg_data);
+		reg_data &= 0x0F; /* CL43 CHG_DTLS[3:0] */
+		psy_do_property("battery", get, POWER_SUPPLY_PROP_CAPACITY, value);
+		capacity = value.intval;
+		/* Adjust input current limit in wireless charging, LCD off, and CV, top-off, charging done mode */
+		if (!charger->is_lcd_on && !charger->is_call_on && ((reg_data == 0x02) || (reg_data == 0x03) ||\
+				(reg_data == 0x04) || (reg_data == 0x08) || (capacity >= 95))) {
+			pr_debug("%s: wireless CV state (0x%x)-----------\n", __func__, reg_data);
+			now_current = max77843_get_input_current(charger);
+			value.intval = 1; /* SEC_BATTERY_CURRENT_MA */
+			psy_do_property(charger->pdata->fuelgauge_name, get,
+				POWER_SUPPLY_PROP_CURRENT_AVG, value);
+			avg_current = value.intval;
+			pr_debug("%s: now_current:%d, avg_current : %d, input_current(%d)\n",
+				__func__, now_current, avg_current, input_current);
+
+#if 0
+			if (input_current > now_current) {
+				if (now_current > avg_current + OFFSET_CURRENT)
+					input_current = avg_current + OFFSET_CURRENT;
+				else
+					input_current = now_current;
+			} else {
+				if (input_current > avg_current + OFFSET_CURRENT)
+					input_current = avg_current + OFFSET_CURRENT;
+			}
+#else
+		if (input_current > avg_current + OFFSET_CURRENT)
+			input_current = avg_current + OFFSET_CURRENT;
+#endif
+			/* Minimum input current 250mA while LCD is OFF */
+			if (input_current < 250)
+				input_current = 250;
+
+			if (input_current > charger->pdata->charging_current[charger->batt_cable_type].input_current_limit)
+				input_current = charger->pdata->charging_current[charger->batt_cable_type].input_current_limit;
+			temp = input_current / 20;
+			input_current = temp * 20;
+			pr_debug("%s: CV WIRELESS MODE Current set : %d\n", __func__, input_current);
+		} else {
+			pr_debug("%s: wireless CC state(0x%x), or lcd_on(%d)-----------\n", __func__, reg_data, charger->is_lcd_on);
+		}
+	}//is_charging
+	return input_current;
+}
 static void max77843_set_current(struct max77843_charger_data *charger)
 {
 	int current_now = charger->charging_current,
@@ -603,13 +681,11 @@ static void max77843_set_current(struct max77843_charger_data *charger)
 			current_now = usb_charging_current;
 
 		if (charger->siop_level < 100) {
-			if (charger->cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
+			if (charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
 
 				if(charger->siop_level == 7) { /* for dcm model, 7 is a reseved word */
-					current_max = 200;
 					current_now = 0;
 				} else {
-						current_max = SIOP_WIRELESS_INPUT_LIMIT_CURRENT;
 						if (current_now > SIOP_WIRELESS_CHARGING_LIMIT_CURRENT)
 							current_now = SIOP_WIRELESS_CHARGING_LIMIT_CURRENT;
 				}
@@ -622,6 +698,10 @@ static void max77843_set_current(struct max77843_charger_data *charger)
 		}
 	}
 
+	if(charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
+		current_max = max77843_calc_wc_current(charger, charger->charging_current_max);
+	}
+
 	pr_debug("%s: siop_level=%d, afc_detec=%d, current_max=%d, current_now=%d\n",
 		__func__, charger->siop_level, charger->afc_detect, current_max, current_now);
 
@@ -632,8 +712,17 @@ static void max77843_set_current(struct max77843_charger_data *charger)
 	}
 
 	max77843_set_charge_current(charger, current_now);
-	max77843_set_input_current(charger, current_max);
-
+	if(charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
+		charger->wc_pre_current = max77843_get_input_current(charger);
+		charger->wc_current = current_max;
+		wake_lock(&charger->wc_current_wake_lock);
+		if (delayed_work_pending(&charger->wc_current_work)) {
+			cancel_delayed_work(&charger->wc_current_work);
+		}
+		queue_delayed_work_on(0, charger->wqueue, &charger->wc_current_work, 0);
+	} else {
+		max77843_set_input_current(charger, current_max);
+	}
 	max77843_test_read(charger);
 }
 
@@ -698,8 +787,18 @@ static void max77843_set_charger_state(struct max77843_charger_data *charger,
 	max77843_read_reg(charger->i2c, MAX77843_CHG_REG_CNFG_00, &reg_data);
 
 	if (enable) {
-		max77843_update_reg(charger->i2c, MAX77843_CHG_REG_CNFG_00,
-				CHG_CNFG_00_CHG_MASK, CHG_CNFG_00_CHG_MASK);
+		if (charger->cable_type == POWER_SUPPLY_TYPE_LAN_HUB) {
+			reg_data &= ~(CHG_CNFG_00_OTG_MASK
+				      | CHG_CNFG_00_BOOST_MASK);
+			reg_data |= CHG_CNFG_00_CHG_MASK;
+			max77843_update_reg(charger->i2c, MAX77843_CHG_REG_CNFG_00,
+					    reg_data, (CHG_CNFG_00_CHG_MASK |
+						       CHG_CNFG_00_OTG_MASK |
+						       CHG_CNFG_00_BOOST_MASK));
+		} else {
+			max77843_update_reg(charger->i2c, MAX77843_CHG_REG_CNFG_00,
+					    CHG_CNFG_00_CHG_MASK, CHG_CNFG_00_CHG_MASK);
+		}
 	} else {
 		max77843_update_reg(charger->i2c, MAX77843_CHG_REG_CNFG_00,
 				0, CHG_CNFG_00_CHG_MASK);
@@ -908,7 +1007,7 @@ static void max77843_charger_initialize(struct max77843_charger_data *charger)
 
 	/* unlock charger setting protect */
 	reg_data = (0x03 << 2);
-	max77843_write_reg(charger->i2c, MAX77843_CHG_REG_CNFG_06, reg_data);
+	max77843_update_reg(charger->i2c, MAX77843_CHG_REG_CNFG_06, reg_data, reg_data);
 
 	/*
 	 * fast charge timer disable
@@ -943,6 +1042,11 @@ static void max77843_charger_initialize(struct max77843_charger_data *charger)
 			CHG_CNFG_04_CHG_CV_PRM_MASK);
 	max77843_read_reg(charger->i2c, MAX77843_CHG_REG_CNFG_04, &reg_data);
 	pr_debug("%s: battery cv voltage 0x%x\n", __func__, reg_data);
+
+	
+	/* Watchdog Enable */
+	max77843_update_reg(charger->i2c, MAX77843_CHG_REG_CNFG_00,
+				MAX77843_WDTEN, MAX77843_WDTEN);
 
 	max77843_test_read(charger);
 }
@@ -1126,6 +1230,12 @@ static int max77843_chg_get_property(struct power_supply *psy,
 			break;
 		}
 		break;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		break;
+	case POWER_SUPPLY_PROP_SCOPE:
+		return -ENODATA;
+	case POWER_SUPPLY_PROP_CYCLE_COUNT:
+		return -ENODATA;
 	default:
 		return -EINVAL;
 	}
@@ -1149,6 +1259,8 @@ static int max77843_chg_set_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_ONLINE:
 		/* check and unlock */
+		psy_do_property("battery", get, POWER_SUPPLY_PROP_ONLINE, value);
+		charger->batt_cable_type = value.intval;
 		check_charger_unlock_state(charger);
 		if (val->intval == POWER_SUPPLY_TYPE_POWER_SHARING) {
 			psy_do_property("ps", get,
@@ -1170,7 +1282,16 @@ static int max77843_chg_set_property(struct power_supply *psy,
 	/* val->intval : input charging current */
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
 		charger->charging_current_max = val->intval;
-		max77843_set_input_current(charger, val->intval);
+#if defined(CONFIG_WIRELESS_CHARGER_INBATTERY)
+		if((charger->siop_level < 100) &&
+			(charger->charging_current_max == charger->pdata->wpc_delayed_current) &&
+			(charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS))
+			pr_debug("%s skip set current \n", __func__);
+		else
+			max77843_set_current(charger);
+#else
+		max77843_set_current(charger);
+#endif
 		break;
 	/*  val->intval : charging current */
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
@@ -1181,15 +1302,23 @@ static int max77843_chg_set_property(struct power_supply *psy,
 		}
 #endif
 		charger->charging_current = val->intval;
-		max77843_set_charge_current(charger,
-			val->intval);
+		max77843_set_current(charger);
 		break;
 	/* val->intval : charging current */
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		max77843_set_charge_current(charger,
 			val->intval);
-		max77843_set_input_current(charger,
-			val->intval);
+		if(charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS) {
+			charger->wc_pre_current = max77843_get_input_current(charger);
+			charger->wc_current = max77843_calc_wc_current(charger, val->intval);
+			wake_lock(&charger->wc_current_wake_lock);
+			if (delayed_work_pending(&charger->wc_current_work)) {
+				cancel_delayed_work(&charger->wc_current_work);
+			}
+			queue_delayed_work_on(0, charger->wqueue, &charger->wc_current_work, 0);
+		} else {
+			max77843_set_input_current(charger, val->intval);
+		}
 		break;
 #if defined(CONFIG_AFC_CHARGER_MODE)
 	case POWER_SUPPLY_PROP_AFC_CHARGER_MODE:
@@ -1274,6 +1403,30 @@ static int max77843_chg_set_property(struct power_supply *psy,
 			__func__, chg_int_state, chg_cnfg_00);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
+		break;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		charger->store_mode = val->intval;
+		max77843_set_input_current(charger, charger->charging_current_max);
+		pr_debug("%s : STORE MODE(%d)\n", __func__, charger->store_mode);
+		break;
+	case POWER_SUPPLY_PROP_SCOPE:
+		if (val->intval) {
+			charger->is_lcd_on = true;
+			pr_debug("is_lcd_on is TRUE\n");
+		} else {
+			charger->is_lcd_on = false;
+			pr_debug("is_lcd_on is FALSE\n");
+		}
+		break;
+	case POWER_SUPPLY_PROP_CYCLE_COUNT:
+		if (val->intval) {
+			charger->is_call_on = true;
+			pr_debug("is_call_on is TRUE\n");
+		} else {
+			charger->is_call_on = false;
+			pr_debug("is_call_on is FALSE\n");
+		}
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -1539,7 +1692,7 @@ static void wpc_detect_work(struct work_struct *work)
 		if (!charger->is_charging)
 			max77843_set_charger_state(charger, false);
 		if ((reg_data != 0x08)
-		    && (charger->cable_type == POWER_SUPPLY_TYPE_WIRELESS)) {
+		    && (charger->batt_cable_type == POWER_SUPPLY_TYPE_WIRELESS)) {
 			pr_debug("%s: wpc uvlo, but charging\n", __func__);
 			queue_delayed_work(charger->wqueue, &charger->wpc_work,
 					   msecs_to_jiffies(500));
@@ -1549,7 +1702,7 @@ static void wpc_detect_work(struct work_struct *work)
 			psy_do_property("wireless", set,
 					POWER_SUPPLY_PROP_ONLINE, value);
 
-#if defined(CONFIG_WIRELESS_CHARGER_INBATTERY) && defined(CONFIG_WIRELESS_CHARGER_INBATTERY_CS100)
+#if 0
 			/* this code is for preventing reactivated wireless charger on outside of pad*/
 			value.intval = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
 			psy_do_property("bq51221-charger", set,
@@ -1842,6 +1995,48 @@ static void max77843_chgin_init_work(struct work_struct *work)
 	}
 }
 
+static void max77843_wc_current_work(struct work_struct *work)
+{
+	struct max77843_charger_data *charger = container_of(work,
+					struct max77843_charger_data,
+					wc_current_work.work);
+	int diff_current = 0;
+
+	if(charger->cable_type != POWER_SUPPLY_TYPE_WIRELESS) {
+		charger->wc_pre_current = WC_CURRENT_START;
+		/* CL43 input current limit 500mA */
+		max77843_write_reg(charger->i2c,
+			MAX77843_CHG_REG_CNFG_10, 0x19);
+		wake_unlock(&charger->wc_current_wake_lock);
+		return;
+	}
+
+	if (charger->wc_pre_current == charger->wc_current) {
+		wake_unlock(&charger->wc_current_wake_lock);
+	} else {
+		if (charger->wc_pre_current > charger->wc_current) {
+			diff_current = charger->wc_pre_current - charger->wc_current;
+			if (diff_current < WC_CURRENT_STEP)
+				charger->wc_pre_current -= diff_current;
+			else
+				charger->wc_pre_current -= WC_CURRENT_STEP;
+		} else {
+			diff_current = charger->wc_current - charger->wc_pre_current;
+			if (diff_current < WC_CURRENT_STEP)
+				charger->wc_pre_current += diff_current;
+			else
+				charger->wc_pre_current += WC_CURRENT_STEP;
+		}
+		max77843_set_input_current(charger, charger->wc_pre_current);
+		wake_lock(&charger->wc_current_wake_lock);
+		queue_delayed_work_on(0, charger->wqueue, &charger->wc_current_work,
+				msecs_to_jiffies(WC_CURRENT_WORK_STEP));
+	}
+
+	pr_debug("%s: wc_current(%d), wc_pre_current(%d), diff(%d) ===========\n",
+		__func__, charger->wc_current, charger->wc_pre_current, diff_current);
+}
+
 #ifdef CONFIG_OF
 static int max77843_charger_parse_dt(struct max77843_charger_data *charger)
 {
@@ -1850,6 +2045,9 @@ static int max77843_charger_parse_dt(struct max77843_charger_data *charger)
 	int ret = 0;
 	int i, len;
 	const u32 *p;
+#if defined(CONFIG_WIRELESS_CHARGER_INBATTERY)
+	u32 temp;
+#endif
 
 	if (np == NULL) {
 		pr_err("%s np NULL\n", __func__);
@@ -1862,6 +2060,12 @@ static int max77843_charger_parse_dt(struct max77843_charger_data *charger)
 	if (!np) {
 		pr_err("%s np NULL\n", __func__);
 	} else {
+
+		ret = of_property_read_string(np,
+			"battery,fuelgauge_name", (char const **)&pdata->fuelgauge_name);
+		if (ret)
+			pr_debug("%s: fuelgauge name is Empty\n", __func__);
+
 		ret = of_property_read_u32(np, "battery,full_check_type_2nd",
 					&pdata->full_check_type_2nd);
 		if (ret)
@@ -1890,6 +2094,20 @@ static int max77843_charger_parse_dt(struct max77843_charger_data *charger)
 				 "battery,full_check_current_2nd", i,
 				 &pdata->charging_current[i].full_check_current_2nd);
 		}
+
+#if defined(CONFIG_WIRELESS_CHARGER_INBATTERY)
+		pdata->wpc_delayed_current_en = of_property_read_bool(np,
+						   "battery,wpc_delayed_current_en");
+		if (pdata->wpc_delayed_current_en) {
+			ret = of_property_read_u32(np, "battery,wpc_delayed_current", &temp);
+			if (ret) {
+				pdata->wpc_delayed_current = 0;
+				pr_debug("%s : wpc_delayed_current is Empty\n", __func__);
+			} else {
+				pdata->wpc_delayed_current = temp;
+			}
+		}
+#endif
 	}
 	return ret;
 }
@@ -1923,10 +2141,12 @@ static int __devinit max77843_charger_probe(struct platform_device *pdev)
 	charger->aicl_on = false;
 	charger->afc_detect = false;
 	charger->is_mdock = false;
+	charger->store_mode = false;
 	charger->siop_level = 100;
 	charger->charging_current_max = 500;
 	charger->max77843_pdata = pdata;
 	charger->input_curr_limit_step = 33;
+	charger->is_call_on = false;
 
 #if defined(CONFIG_OF)
 	ret = max77843_charger_parse_dt(charger);
@@ -1978,6 +2198,8 @@ static int __devinit max77843_charger_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&charger->chgin_init_work, max77843_chgin_init_work);
 	wake_lock_init(&charger->wpc_wake_lock, WAKE_LOCK_SUSPEND,
 					       "charger-wpc");
+	wake_lock_init(&charger->wpc_curr_wake_lock, WAKE_LOCK_SUSPEND,
+					       "charger-curr-wpc");
 	wake_lock_init(&charger->afc_wake_lock, WAKE_LOCK_SUSPEND,
 		       "charger-afc");
 	INIT_DELAYED_WORK(&charger->wpc_work, wpc_detect_work);
@@ -1986,6 +2208,9 @@ static int __devinit max77843_charger_probe(struct platform_device *pdev)
 	wake_lock_init(&charger->aicl_wake_lock, WAKE_LOCK_SUSPEND,
 					       "charger-aicl");
 	INIT_DELAYED_WORK(&charger->aicl_work, max77843_aicl_work);
+	wake_lock_init(&charger->wc_current_wake_lock, WAKE_LOCK_SUSPEND,
+		       "charger->wc-current");
+	INIT_DELAYED_WORK(&charger->wc_current_work, max77843_wc_current_work);
 
 	ret = power_supply_register(&pdev->dev, &charger->psy_chg);
 	if (ret) {
@@ -2077,6 +2302,11 @@ static int __devinit max77843_charger_probe(struct platform_device *pdev)
 			"%s : Failed to create_attrs\n", __func__);
 		goto err_wc_irq;
 	}
+
+	/* watchdog kick */
+	max77843_update_reg(charger->i2c, MAX77843_CHG_REG_CNFG_06,
+			MAX77843_WDTCLR, CHG_CNFG_06_WDTCLR_MASK);
+
 	pr_debug("%s: MAX77843 Charger Driver Loaded\n", __func__);
 
 	return 0;

@@ -41,6 +41,10 @@
 #include "objsec.h"
 #include "conditional.h"
 
+#if defined(CONFIG_TZ_ICCC)
+#include <linux/security/Iccc_Interface.h>
+#endif
+
 /* Policy capability filenames */
 static char *policycap_names[] = {
 	"network_peer_controls",
