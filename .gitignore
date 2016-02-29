@@ -52,6 +52,7 @@ modules.builtin
 /*.tar
 /*.tar.md5
 !/kernelzip/**
+!/recovery/**
 
 #
 # Debian directory (make deb-pkg)
