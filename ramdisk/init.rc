@@ -571,7 +571,7 @@ on post-fs-data
 
     # Separate location for storing security policy files on data    
     #start SEC_PRODUCT_FEATURE_COMMON_SUPPORT_SE_FOR_ANDROID 
-    mkdir /data/security 0710 system system_access
+    mkdir /data/security 0700 system system
     #end SEC_PRODUCT_FEATURE_COMMON_SUPPORT_SE_FOR_ANDROID
     
     # We restorecon /data when file_contexts is changed(SPD, FOTA, HOME)

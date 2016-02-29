@@ -21,9 +21,9 @@ debug.atrace.tags.enableflags=0
 #
 # BOOTIMAGE_BUILD_PROPERTIES
 #
-ro.bootimage.build.date=Thu Feb 18 21:05:03 KST 2016
-ro.bootimage.build.date.utc=1455797103
-ro.bootimage.build.fingerprint=samsung/nobleltejv/noblelte:6.0.1/MMB29K/N920CXXU2BPB9:user/test-keys
+ro.bootimage.build.date=Sat Jan 30 02:11:47 KST 2016
+ro.bootimage.build.date.utc=1454087507
+ro.bootimage.build.fingerprint=samsung/noblelteskt/noblelteskt:6.0.1/MMB29K/N920SKSU2BPAF:user/test-keys
 
 # START OVERRIDE (arter97 kernel)
 # SELinux & Knox related
