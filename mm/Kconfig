@@ -667,3 +667,12 @@ config KSWAPD_CPU_AFFINITY_MASK_VALUE
 	  the resultant bitmask.
 	  For example to limit kswapd to the first 4 cores use the following:
 	  CONFIG_KSWAPD_CPU_AFFINITY_MASK_VALUE="f"
+
+config ESWAP
+	bool "Exynos SWAP for frontswap backend"
+	depends on !ZSWAP
+	depends on FRONTSWAP
+	select ZPOOL
+	default n
+	help
+	  This enables H/W compress for swap page.
