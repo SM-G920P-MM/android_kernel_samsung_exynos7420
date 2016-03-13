@@ -42,6 +42,9 @@
 #include <linux/ipa.h>
 #endif /* CONFIG_HMP_FREQUENCY_INVARIANT_SCALE */
 #endif /* CONFIG_HMP_VARIABLE_SCALE */
+#ifdef CONFIG_SCHED_HMP
+#include <linux/cpuidle.h>
+#endif
 
 #include "sched.h"
 
@@ -1903,7 +1906,13 @@ static inline void enqueue_entity_load_avg(struct cfs_rq *cfs_rq,
 		}
 		wakeup = 0;
 	} else {
-		__synchronize_entity_decay(se);
+		/*
+		 * Task re-woke on same cpu (or else migrate_task_rq_fair()
+		 * would have made count negative); we must be careful to avoid
+		 * double-accounting blocked time after synchronizing decays.
+		 */
+		se->avg.last_runnable_update += __synchronize_entity_decay(se)
+							<< 20;
 	}
 
 	/* migrated tasks did not contribute to our blocked load */
@@ -3736,6 +3745,111 @@ static const int hmp_max_tasks=5;
 
 extern void __init arch_get_hmp_domains(struct list_head *hmp_domains_list);
 
+#ifdef CONFIG_CPU_IDLE
+/*
+ * hmp_idle_pull:
+ *
+ * In this version we have stopped using forced up migrations when we
+ * detect that a task running on a little CPU should be moved to a bigger
+ * CPU. In most cases, the bigger CPU is in a deep sleep state and a forced
+ * migration means we stop the task immediately but need to wait for the
+ * target CPU to wake up before we can restart the task which is being
+ * moved. Instead, we now wake a big CPU with an IPI and ask it to pull
+ * a task when ready. This allows the task to continue executing on its
+ * current CPU, reducing the amount of time that the task is stalled for.
+ *
+ * keepalive timers:
+ *
+ * The keepalive timer is used as a way to keep a CPU engaged in an
+ * idle pull operation out of idle while waiting for the source
+ * CPU to stop and move the task. Ideally this would not be necessary
+ * and we could impose a temporary zero-latency requirement on the
+ * current CPU, but in the current QoS framework this will result in
+ * all CPUs in the system being unable to enter idle states which is
+ * not desirable. The timer does not perform any work when it expires.
+ */
+struct hmp_keepalive {
+	bool init;
+	ktime_t delay;	/* if zero, no need for timer */
+	struct hrtimer timer;
+};
+DEFINE_PER_CPU(struct hmp_keepalive, hmp_cpu_keepalive);
+
+/* setup per-cpu keepalive timers */
+static enum hrtimer_restart hmp_cpu_keepalive_notify(struct hrtimer *hrtimer)
+{
+	return HRTIMER_NORESTART;
+}
+
+/*
+ * Work out if any of the idle states have an exit latency too high for us.
+ * ns_delay is passed in containing the max we are willing to tolerate.
+ * If there are none, set ns_delay to zero.
+ * If there are any, set ns_delay to
+ * ('target_residency of state with shortest too-big latency' - 1) * 1000.
+ */
+static void hmp_keepalive_delay(int cpu, unsigned int *ns_delay)
+{
+	struct cpuidle_device *dev = per_cpu(cpuidle_devices, cpu);
+	struct cpuidle_driver *drv;
+
+	drv = cpuidle_get_cpu_driver(dev);
+	if (drv) {
+		unsigned int us_delay = UINT_MAX;
+		unsigned int us_max_delay = *ns_delay / 1000;
+		int idx;
+		/* if cpuidle states are guaranteed to be sorted we
+		 * could stop at the first match.
+		 */
+		for (idx = 0; idx < drv->state_count; idx++) {
+			if (drv->states[idx].exit_latency > us_max_delay &&
+				drv->states[idx].target_residency < us_delay) {
+				us_delay = drv->states[idx].target_residency;
+			}
+		}
+		if (us_delay == UINT_MAX)
+			*ns_delay = 0; /* no timer required */
+		else
+			*ns_delay = 1000 * (us_delay - 1);
+	}
+}
+
+static void hmp_cpu_keepalive_trigger(void)
+{
+	int cpu = smp_processor_id();
+	struct hmp_keepalive *keepalive = &per_cpu(hmp_cpu_keepalive, cpu);
+	if (!keepalive->init) {
+		unsigned int ns_delay = 100000; /* tolerate 100usec delay */
+
+		hrtimer_init(&keepalive->timer,
+				CLOCK_MONOTONIC, HRTIMER_MODE_REL_PINNED);
+		keepalive->timer.function = hmp_cpu_keepalive_notify;
+
+		hmp_keepalive_delay(cpu, &ns_delay);
+		keepalive->delay = ns_to_ktime(ns_delay);
+		keepalive->init = true;
+	}
+	if (ktime_to_ns(keepalive->delay))
+		hrtimer_start(&keepalive->timer,
+			keepalive->delay, HRTIMER_MODE_REL_PINNED);
+}
+
+static void hmp_cpu_keepalive_cancel(int cpu)
+{
+	struct hmp_keepalive *keepalive = &per_cpu(hmp_cpu_keepalive, cpu);
+	if (keepalive->init)
+		hrtimer_cancel(&keepalive->timer);
+}
+#else /* !CONFIG_CPU_IDLE */
+static void hmp_cpu_keepalive_trigger(void)
+{
+}
+
+static void hmp_cpu_keepalive_cancel(int cpu)
+{
+}
+#endif
+
 /* Setup hmp_domains */
 static int __init hmp_cpu_mask_setup(void)
 {
@@ -3796,38 +3910,44 @@ static void hmp_offline_cpu(int cpu)
 
 	if(domain)
 		cpumask_clear_cpu(cpu, &domain->cpus);
+
+	hmp_cpu_keepalive_cancel(cpu);
 }
 
 /* must hold runqueue lock for queue se is currently on */
-
-static struct sched_entity *hmp_get_heaviest_task(struct sched_entity* se, int migrate_up)
+static struct sched_entity *hmp_get_heaviest_task(
+				struct sched_entity *se, int target_cpu)
 {
 	int num_tasks = hmp_max_tasks;
 	struct sched_entity *max_se = se;
 	unsigned long int max_ratio = se->avg.load_avg_ratio;
 	const struct cpumask *hmp_target_mask = NULL;
+	struct hmp_domain *hmp;
 
-	if (migrate_up) {
-		struct hmp_domain *hmp;
-		if(hmp_cpu_is_fastest(cpu_of(se->cfs_rq->rq)))
-			return max_se;
+	if (hmp_cpu_is_fastest(cpu_of(se->cfs_rq->rq)))
+		return max_se;
 
-		hmp = hmp_faster_domain(cpu_of(se->cfs_rq->rq));
-		hmp_target_mask = &hmp->cpus;
+	hmp = hmp_faster_domain(cpu_of(se->cfs_rq->rq));
+	hmp_target_mask = &hmp->cpus;
+	if (target_cpu >= 0) {
+		/* idle_balance gets run on a CPU while
+		 * it is in the middle of being hotplugged
+		 * out. Bail early in that case.
+		 */
+		if(!cpumask_test_cpu(target_cpu, hmp_target_mask))
+			return NULL;
+		hmp_target_mask = cpumask_of(target_cpu);
 	}
-
 	/* The currently running task is not on the runqueue */
 	se = __pick_first_entity(cfs_rq_of(se));
 
-	while(num_tasks && se) {
-		if (entity_is_task(se)) {
-			if(se->avg.load_avg_ratio > max_ratio &&
-					(hmp_target_mask &&
-					 cpumask_intersects(hmp_target_mask,
-						 tsk_cpus_allowed(task_of(se))))) {
-				max_se = se;
-				max_ratio = se->avg.load_avg_ratio;
-			}
+	while (num_tasks && se) {
+		if (entity_is_task(se) &&
+			se->avg.load_avg_ratio > max_ratio &&
+			cpumask_intersects(hmp_target_mask,
+				tsk_cpus_allowed(task_of(se)))) {
+			max_se = se;
+			max_ratio = se->avg.load_avg_ratio;
 		}
 		se = __pick_next_entity(se);
 		num_tasks--;
@@ -3898,27 +4018,27 @@ static DEFINE_RAW_SPINLOCK(hmp_sysfs_lock);
 #define YIELD_CORRECTION_TIME 10000000 /* nanoseconds */
 
 #ifdef CONFIG_SCHED_HMP_PRIO_FILTER
-unsigned int hmp_up_prio = NICE_TO_PRIO(CONFIG_SCHED_HMP_PRIO_FILTER_VAL);
+static unsigned int hmp_up_prio = NICE_TO_PRIO(CONFIG_SCHED_HMP_PRIO_FILTER_VAL);
 #endif
-unsigned int hmp_next_up_threshold = 4096;
-unsigned int hmp_next_down_threshold = 4096;
+static unsigned int hmp_next_up_threshold = 4096;
+static unsigned int hmp_next_down_threshold = 4096;
 
 #ifdef CONFIG_SCHED_HMP_LITTLE_PACKING
-unsigned int hmp_packing_enabled = 1;
-unsigned int hmp_full_threshold = 42;
+static unsigned int hmp_packing_enabled = 1;
+static unsigned int hmp_full_threshold = 42;
 #endif
 
-static inline int hmp_boost(void)
+static inline bool hmp_boost(void)
 {
 	u64 now = ktime_to_us(ktime_get());
-	int ret;
+	bool ret;
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&hmp_boost_lock, flags);
 	if (hmp_boost_val || now < hmp_boostpulse_endtime)
-		ret = 1;
+		ret = true;
 	else
-		ret = 0;
+		ret = false;
 	raw_spin_unlock_irqrestore(&hmp_boost_lock, flags);
 
 	return ret;
@@ -4119,7 +4239,7 @@ static u64 hmp_variable_scale_convert(u64 delta)
 	u64 high = delta >> 32ULL;
 	u64 low = delta & 0xffffffffULL;
 
-	if (hmp_semiboost()) {
+	if (hmp_semiboost_val) {
 		low *= hmp_data.semiboost_multiplier;
 		high *= hmp_data.semiboost_multiplier;
 	} else {
@@ -4437,7 +4557,7 @@ int set_hmp_aggressive_yield(int enable)
 
 int get_hmp_boost(void)
 {
-	return hmp_boost();
+	return hmp_boost() ? 1 : 0;
 }
 
 int get_hmp_semiboost(void)
@@ -4786,6 +4906,19 @@ select_task_rq_fair(struct task_struct *p, int sd_flag, int wake_flags)
 
 	if (p->nr_cpus_allowed == 1)
 		return prev_cpu;
+
+#ifdef CONFIG_SCHED_HMP
+	/* always put non-kernel forking tasks on a big domain */
+	if (unlikely(sd_flag & SD_BALANCE_FORK) && hmp_task_should_forkboost(p)) {
+		new_cpu = hmp_select_faster_cpu(p, prev_cpu);
+		if (new_cpu != NR_CPUS) {
+			hmp_next_up_delay(&p->se, new_cpu);
+			return new_cpu;
+		}
+		/* failed to perform HMP fork balance, use normal balance */
+		new_cpu = cpu;
+	}
+#endif
 
 	if (sd_flag & SD_BALANCE_WAKE) {
 		if (cpumask_test_cpu(cpu, tsk_cpus_allowed(p)))
@@ -6904,12 +7037,12 @@ static int nohz_test_cpu(int cpu)
  * Decide if the tasks on the busy CPUs in the
  * littlest domain would benefit from an idle balance
  */
-static int hmp_packing_ilb_needed(int cpu)
+static int hmp_packing_ilb_needed(int cpu, int ilb_needed)
 {
 	struct hmp_domain *hmp;
-	/* always allow ilb on non-slowest domain */
+	/* allow previous decision on non-slowest domain */
 	if (!hmp_cpu_is_slowest(cpu))
-		return 1;
+		return ilb_needed;
 
 	hmp = hmp_cpu_domain(cpu);
 	for_each_cpu_and(cpu, &hmp->cpus, nohz.idle_cpus_mask) {
@@ -6921,19 +7054,34 @@ static int hmp_packing_ilb_needed(int cpu)
 }
 #endif
 
+DEFINE_PER_CPU(cpumask_var_t, ilb_tmpmask);
+
 static inline int find_new_ilb(int call_cpu)
 {
 	int ilb = cpumask_first(nohz.idle_cpus_mask);
 #ifdef CONFIG_SCHED_HMP
-	int ilb_needed = 1;
+	int ilb_needed = 0;
+	int cpu;
+	struct cpumask* tmp = per_cpu(ilb_tmpmask, smp_processor_id());
 
 	/* restrict nohz balancing to occur in the same hmp domain */
 	ilb = cpumask_first_and(nohz.idle_cpus_mask,
 			&((struct hmp_domain *)hmp_cpu_domain(call_cpu))->cpus);
 
+	/* check to see if it's necessary within this domain */
+	cpumask_andnot(tmp,
+			&((struct hmp_domain *)hmp_cpu_domain(call_cpu))->cpus,
+			nohz.idle_cpus_mask);
+	for_each_cpu(cpu, tmp) {
+		if (cpu_rq(cpu)->nr_running > 1) {
+			ilb_needed = 1;
+			break;
+		}
+	}
+
 #ifdef CONFIG_SCHED_HMP_LITTLE_PACKING
 	if (ilb < nr_cpu_ids)
-		ilb_needed = hmp_packing_ilb_needed(ilb);
+		ilb_needed = hmp_packing_ilb_needed(ilb, ilb_needed);
 #endif
 
 	if (ilb_needed && ilb < nr_cpu_ids && idle_cpu(ilb))
@@ -7275,6 +7423,14 @@ static void nohz_idle_balance(int this_cpu, enum cpu_idle_type idle) { }
 #endif
 
 #ifdef CONFIG_SCHED_HMP
+static unsigned int hmp_task_eligible_for_up_migration(struct sched_entity *se)
+{
+	/* below hmp_up_threshold, never eligible */
+	if (se->avg.load_avg_ratio < hmp_up_threshold)
+		return 0;
+	return 1;
+}
+
 /* Check if task should migrate to a faster cpu */
 static unsigned int hmp_up_migration(int cpu, int *target_cpu, struct sched_entity *se)
 {
@@ -7298,7 +7454,7 @@ static unsigned int hmp_up_migration(int cpu, int *target_cpu, struct sched_enti
 		else
 			up_threshold = hmp_power_migration ? hmp_up_perf_threshold : hmp_up_threshold;
 
-		if (se->avg.load_avg_ratio < up_threshold) {
+		if (!hmp_task_eligible_for_up_migration(se)) {
 			if (hmp_power_migration) {
 				if (!((se->avg.load_avg_ratio > hmp_up_power_threshold) 
 				    && is_efficient_up(se->avg.load_avg_ratio)))
@@ -7649,6 +7805,69 @@ out_unlock:
 	return 0;
 }
 
+/*
+ * Move task in a runnable state to another CPU.
+ *
+ * Tailored on 'active_load_balance_stop_cpu' with slight
+ * modification to locking and pre-transfer checks.  Note
+ * rq->lock must be held before calling.
+ */
+static void hmp_migrate_runnable_task(struct rq *rq)
+{
+	struct sched_domain *sd;
+	int src_cpu = cpu_of(rq);
+	struct rq *src_rq = rq;
+	int dst_cpu = rq->push_cpu;
+	struct rq *dst_rq = cpu_rq(dst_cpu);
+	struct task_struct *p = rq->migrate_task;
+	/*
+	 * One last check to make sure nobody else is playing
+	 * with the source rq.
+	 */
+	if (src_rq->active_balance)
+		return;
+
+	if (src_rq->nr_running <= 1)
+		return;
+
+	if (task_rq(p) != src_rq)
+		return;
+	/*
+	 * Not sure if this applies here but one can never
+	 * be too cautious
+	 */
+	BUG_ON(src_rq == dst_rq);
+
+	double_lock_balance(src_rq, dst_rq);
+
+	rcu_read_lock();
+	for_each_domain(dst_cpu, sd) {
+		if (cpumask_test_cpu(src_cpu, sched_domain_span(sd)))
+			break;
+	}
+
+	if (likely(sd)) {
+		struct lb_env env = {
+			.sd             = sd,
+			.dst_cpu        = dst_cpu,
+			.dst_rq         = dst_rq,
+			.src_cpu        = src_cpu,
+			.src_rq         = src_rq,
+			.idle           = CPU_IDLE,
+		};
+
+		schedstat_inc(sd, alb_count);
+
+		if (move_specific_task(&env, p))
+			schedstat_inc(sd, alb_pushed);
+		else
+			schedstat_inc(sd, alb_failed);
+	}
+
+	rcu_read_unlock();
+	double_unlock_balance(src_rq, dst_rq);
+}
+
 static DEFINE_SPINLOCK(hmp_force_migration);
 
 /*
@@ -7661,7 +7880,7 @@ static void hmp_force_up_migration(int this_cpu)
 	struct sched_entity *curr, *orig;
 	struct rq *target;
 	unsigned long flags;
-	unsigned int force;
+	unsigned int force, got_target;
 	struct task_struct *p;
 
 	if (!spin_trylock(&hmp_force_migration)) {
@@ -7672,10 +7891,11 @@ static void hmp_force_up_migration(int this_cpu)
 
 	for_each_online_cpu(cpu) {
 		force = 0;
+		got_target = 0;
 		target = cpu_rq(cpu);
 		raw_spin_lock_irqsave(&target->lock, flags);
 		curr = target->cfs.curr;
-		if (!curr) {
+		if (!curr || target->active_balance) {
 			raw_spin_unlock_irqrestore(&target->lock, flags);
 			continue;
 		}
@@ -7690,22 +7910,21 @@ static void hmp_force_up_migration(int this_cpu)
 			}
 		}
 		orig = curr;
-		curr = hmp_get_heaviest_task(curr, 1);
+		curr = hmp_get_heaviest_task(curr, -1);
+		if (!curr) {
+			raw_spin_unlock_irqrestore(&target->lock, flags);
+			continue;
+		}
 
 		p = task_of(curr);
 		if (hmp_up_migration(cpu, &target_cpu, curr)) {
-			if (!target->active_balance) {
-				get_task_struct(p);
-				target->active_balance = 1;
-				target->push_cpu = target_cpu;
-				target->migrate_task = p;
-				force = 1;
-				trace_sched_hmp_migrate(p, target->push_cpu,
-					HMP_MIGRATE_FORCE);
-				hmp_next_up_delay(&p->se, target->push_cpu);
-			}
+			cpu_rq(target_cpu)->wake_for_idle_pull = 1;
+			raw_spin_unlock_irqrestore(&target->lock, flags);
+			spin_unlock(&hmp_force_migration);
+			smp_send_reschedule(target_cpu);
+			return;
 		}
-		if (!force && !target->active_balance) {
+		if (!got_target) {
 			/*
 			 * For now we just check the currently running task.
 			 * Selecting the lightest task for offloading will
@@ -7716,15 +7935,30 @@ static void hmp_force_up_migration(int this_cpu)
 			target->push_cpu = hmp_offload_down(cpu, curr);
 			if (target->push_cpu < NR_CPUS) {
 				get_task_struct(p);
-				target->active_balance = 1;
 				target->migrate_task = p;
-				force = 1;
+				got_target = 1;
 				trace_sched_hmp_migrate(p, target->push_cpu,
 					HMP_MIGRATE_OFFLOAD);
 				hmp_next_down_delay(&p->se, target->push_cpu);
 			}
 		}
+		/*
+		 * We have a target with no active_balance.  If the task
+		 * is not currently running move it, otherwise let the
+		 * CPU stopper take care of it.
+		 */
+		if (got_target) {
+			if (!task_running(target, p)) {
+				trace_sched_hmp_migrate_force_running(p, 0);
+				hmp_migrate_runnable_task(target);
+			} else {
+				target->active_balance = 1;
+				force = 1;
+			}
+		}
+
 		raw_spin_unlock_irqrestore(&target->lock, flags);
+
 		if (force)
 			stop_one_cpu_nowait(cpu_of(target),
 				hmp_active_task_migration_cpu_stop,
@@ -7749,7 +7983,7 @@ static unsigned int hmp_idle_pull(int this_cpu)
 	int cpu;
 	struct sched_entity *curr, *orig;
 	struct hmp_domain *hmp_domain = NULL;
-	struct rq *target, *rq;
+	struct rq *target = NULL, *rq;
 	unsigned long flags,ratio = 0;
 	unsigned int force=0;
 	unsigned int up_threshold;
@@ -7786,13 +8020,20 @@ static unsigned int hmp_idle_pull(int this_cpu)
 			}
 		}
 		orig = curr;
-		curr = hmp_get_heaviest_task(curr, 1);
+		curr = hmp_get_heaviest_task(curr, this_cpu);
 		if (hmp_semiboost())
 			up_threshold = hmp_semiboost_up_threshold;
 		else
 			up_threshold = hmp_power_migration ? hmp_up_perf_threshold : hmp_up_threshold;
 
-		if (hmp_boost() || curr->avg.load_avg_ratio > up_threshold)
+		if (curr &&
+			(hmp_boost() ||
+			/* check if heaviest eligible task on this
+			 * CPU is heavier than previous task
+			 */
+			hmp_task_eligible_for_up_migration(curr)) &&
+				cpumask_test_cpu(this_cpu,
+					tsk_cpus_allowed(task_of(curr))))
 			if (curr->avg.load_avg_ratio > ratio) {
 				p = task_of(curr);
 				target = rq;
@@ -7808,16 +8049,29 @@ static unsigned int hmp_idle_pull(int this_cpu)
 	raw_spin_lock_irqsave(&target->lock, flags);
 	if (!target->active_balance && task_rq(p) == target) {
 		get_task_struct(p);
-		target->active_balance = 1;
 		target->push_cpu = this_cpu;
 		target->migrate_task = p;
-		force = 1;
 		trace_sched_hmp_migrate(p, target->push_cpu,
 			HMP_MIGRATE_IDLE_PULL);
 		hmp_next_up_delay(&p->se, target->push_cpu);
+		/*
+		 * if the task isn't running move it right away.
+		 * Otherwise setup the active_balance mechanic and let
+		 * the CPU stopper do its job.
+		 */
+		if (!task_running(target, p)) {
+			trace_sched_hmp_migrate_idle_running(p, 0);
+			hmp_migrate_runnable_task(target);
+		} else {
+			target->active_balance = 1;
+			force = 1;
+		}
 	}
 	raw_spin_unlock_irqrestore(&target->lock, flags);
+
 	if (force) {
+		/* start timer to keep us awake */
+		hmp_cpu_keepalive_trigger();
 		stop_one_cpu_nowait(cpu_of(target),
 				hmp_idle_pull_cpu_stop,
 				target, &target->active_balance_work);
@@ -7840,6 +8094,18 @@ static void run_rebalance_domains(struct softirq_action *h)
 	struct rq *this_rq = cpu_rq(this_cpu);
 	enum cpu_idle_type idle = this_rq->idle_balance ?
 						CPU_IDLE : CPU_NOT_IDLE;
+
+#ifdef CONFIG_SCHED_HMP
+	/* shortcut for hmp idle pull wakeups */
+	if (unlikely(this_rq->wake_for_idle_pull)) {
+		this_rq->wake_for_idle_pull = 0;
+		if (hmp_idle_pull(this_cpu)) {
+			/* break out unless running nohz idle as well */
+			if (idle != CPU_IDLE)
+				return;
+		}
+	}
+#endif
 
 	hmp_force_up_migration(this_cpu);
 
