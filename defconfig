@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/arm64 3.10.98 Kernel Configuration
+# Linux/arm64 3.10.100 Kernel Configuration
 #
 CONFIG_ARM64=y
 CONFIG_64BIT=y
@@ -4491,6 +4491,7 @@ CONFIG_ARM64_CRYPTO=y
 # CONFIG_CRYPTO_AES_ARM64_CE_CCM is not set
 CONFIG_CRYPTO_AES_ARM64_CE_BLK=y
 # CONFIG_CRYPTO_AES_ARM64_NEON_BLK is not set
+CONFIG_CRYPTO_CRC32_ARM64=y
 # CONFIG_BINARY_PRINTF is not set
 
 #

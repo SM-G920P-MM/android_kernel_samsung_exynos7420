@@ -17,11 +17,9 @@ else
 	cp defconfig .config
 scripts/configcleaner "
 CONFIG_SECURITY_SELINUX_DISABLE_LOAD
-CONFIG_USB_ANDROID_SAMSUNG_MTP
 "
 	echo '
 # CONFIG_SECURITY_SELINUX_DISABLE_LOAD is not set
-# CONFIG_USB_ANDROID_SAMSUNG_MTP is not set
 ' >> .config
 	make oldconfig
 	make "$@" || exit 1

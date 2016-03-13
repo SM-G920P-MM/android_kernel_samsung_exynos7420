@@ -1472,7 +1472,11 @@ void scheduler_ipi(void)
 {
 	if (llist_empty(&this_rq()->wake_list)
 			&& !tick_nohz_full_cpu(smp_processor_id())
-			&& !got_nohz_idle_kick())
+			&& !got_nohz_idle_kick()
+#ifdef CONFIG_SCHED_HMP
+			&& !this_rq()->wake_for_idle_pull
+#endif
+			)
 		return;
 
 	/*
@@ -1499,6 +1503,11 @@ void scheduler_ipi(void)
 		this_rq()->idle_balance = 1;
 		raise_softirq_irqoff(SCHED_SOFTIRQ);
 	}
+#ifdef CONFIG_SCHED_HMP
+	else if (unlikely(this_rq()->wake_for_idle_pull))
+		raise_softirq_irqoff(SCHED_SOFTIRQ);
+#endif
+
 	irq_exit();
 }
 
@@ -1646,7 +1655,6 @@ out:
  */
 int wake_up_process(struct task_struct *p)
 {
-	WARN_ON(task_is_stopped_or_traced(p));
 	return try_to_wake_up(p, TASK_NORMAL, 0);
 }
 EXPORT_SYMBOL(wake_up_process);
@@ -1682,8 +1690,18 @@ static void __sched_fork(struct task_struct *p)
 #if defined(CONFIG_SMP) && defined(CONFIG_FAIR_GROUP_SCHED)
 	p->se.avg.remainder = 0;
 #ifdef CONFIG_SCHED_HMP
+	/* keep LOAD_AVG_MAX in sync with fair.c if load avg series is changed */
+#define LOAD_AVG_MAX 47742
 	p->se.avg.hmp_last_up_migration = 0;
 	p->se.avg.hmp_last_down_migration = 0;
+	if (hmp_task_should_forkboost(p)) {
+		p->se.avg.load_avg_ratio = 1023;
+		p->se.avg.load_avg_contrib =
+				(1023 * scale_load_down(p->se.load.weight));
+		p->se.avg.runnable_avg_period = LOAD_AVG_MAX;
+		p->se.avg.runnable_avg_sum = LOAD_AVG_MAX;
+		p->se.avg.usage_avg_sum = LOAD_AVG_MAX;
+	}
 #else
 	p->se.avg.runnable_avg_period = 0;
 	p->se.avg.runnable_avg_sum = 0;
@@ -4675,6 +4693,7 @@ long __sched io_schedule_timeout(long timeout)
 	delayacct_blkio_end();
 	return ret;
 }
+EXPORT_SYMBOL(io_schedule_timeout);
 
 /**
  * sys_sched_get_priority_max - return maximum RT priority.
