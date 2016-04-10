@@ -309,7 +309,7 @@ static void cpufreq_interactive_timer_resched(
 	pcpu->cputime_speedadj_timestamp = pcpu->time_in_idle_timestamp;
 	expires = jiffies;
 	if (suspended)
-		expires += (tunables->timer_rate * 3);
+		expires += (tunables->timer_rate * 2);
 	else
 		expires += tunables->timer_rate;
 	mod_timer_pinned(&pcpu->cpu_timer, expires);
@@ -343,7 +343,7 @@ static void cpufreq_interactive_timer_start(
 
 	expires = jiffies;
 	if (suspended)
-		expires += (tunables->timer_rate * 3);
+		expires += (tunables->timer_rate * 2);
 	else
 		expires += tunables->timer_rate;
 
