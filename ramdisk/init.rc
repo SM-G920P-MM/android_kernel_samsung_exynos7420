@@ -1126,9 +1126,9 @@ service sec-sh /system/etc/init.sec.boot.sh
     oneshot
     
 service uci /sbin/uci
+    class late_start
     user root
     oneshot
-    disabled
 
 service proploader /init.prop.sh
     user root
