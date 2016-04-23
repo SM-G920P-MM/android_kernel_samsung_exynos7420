@@ -211,7 +211,7 @@ static irqreturn_t host_wake_isr(int irq, void *dev)
 	if (!bt_lpm.uport) {
 		bt_lpm.host_wake = host_wake;
 		pr_err("[BT] host_wake_isr uport is null\n");
-		return IRQ_HANDLED;
+		goto irq_handled;
 	}
 
 #ifdef CONFIG_BT_UART_IN_AUDIO
@@ -225,6 +225,8 @@ static irqreturn_t host_wake_isr(int irq, void *dev)
 		port->ops->set_wake(port, host_wake);
 	}
 #endif
+
+irq_handled:
 	update_host_wake_locked(host_wake);
 
 	return IRQ_HANDLED;
