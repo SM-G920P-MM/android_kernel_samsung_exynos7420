@@ -79,7 +79,7 @@ int check_bt_op(void)
 }
 EXPORT_SYMBOL(check_bt_op);
 
-static int bcm4359_bt_rfkill_set_power(void *data, bool blocked)
+static int bcm435x_bt_rfkill_set_power(void *data, bool blocked)
 {
 	/* rfkill_ops callback. Turn transmitter on when blocked is false */
 	if (!blocked) {
@@ -114,8 +114,8 @@ static int bcm4359_bt_rfkill_set_power(void *data, bool blocked)
 	return 0;
 }
 
-static const struct rfkill_ops bcm4359_bt_rfkill_ops = {
-	.set_block = bcm4359_bt_rfkill_set_power,
+static const struct rfkill_ops bcm435x_bt_rfkill_ops = {
+	.set_block = bcm435x_bt_rfkill_set_power,
 };
 
 #ifdef BT_LPM_ENABLE
@@ -257,13 +257,13 @@ static int bcm_bt_lpm_init(struct platform_device *pdev)
 }
 #endif
 
-static int bcm4359_bluetooth_probe(struct platform_device *pdev)
+static int bcm435x_bluetooth_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 #ifdef BT_LPM_ENABLE
 	int ret;
 #endif
-	pr_info("[BT] bcm4359_bluetooth_probe.\n");
+	pr_info("[BT] bcm435x_bluetooth_probe.\n");
 
 	bt_gpio.bt_en = of_get_gpio(pdev->dev.of_node, 0);
 
@@ -314,8 +314,8 @@ static int bcm4359_bluetooth_probe(struct platform_device *pdev)
 	gpio_direction_output(bt_gpio.bt_wake, 0);
 	gpio_direction_output(bt_gpio.bt_en, 0);
 
-	bt_rfkill = rfkill_alloc("bcm4359 Bluetooth", &pdev->dev,
-				RFKILL_TYPE_BLUETOOTH, &bcm4359_bt_rfkill_ops,
+	bt_rfkill = rfkill_alloc("bcm435x Bluetooth", &pdev->dev,
+				RFKILL_TYPE_BLUETOOTH, &bcm435x_bt_rfkill_ops,
 				NULL);
 
 	if (unlikely(!bt_rfkill)) {
@@ -352,11 +352,11 @@ static int bcm4359_bluetooth_probe(struct platform_device *pdev)
 		gpio_free(bt_gpio.bt_en);
 	}
 #endif
-	pr_info("[BT] bcm4359_bluetooth_probe End \n");
+	pr_info("[BT] bcm435x_bluetooth_probe End \n");
 	return rc;
 }
 
-static int bcm4359_bluetooth_remove(struct platform_device *pdev)
+static int bcm435x_bluetooth_remove(struct platform_device *pdev)
 {
 	rfkill_unregister(bt_rfkill);
 	rfkill_destroy(bt_rfkill);
@@ -374,24 +374,29 @@ static int bcm4359_bluetooth_remove(struct platform_device *pdev)
 #if defined (CONFIG_OF)
 static const struct of_device_id exynos_bluetooth_match[] = {
 	{
+#ifdef CONFIG_BT_BCM4358
+		.compatible = "broadcom,bcm4358",
+#endif
+#ifdef CONFIG_BT_BCM4359
 		.compatible = "broadcom,bcm4359",
+#endif
 	},
 	{},
 };
 MODULE_DEVICE_TABLE(of, exynos_bluetooth_match);
 
-static struct platform_driver bcm4359_bluetooth_platform_driver = {
-	.probe = bcm4359_bluetooth_probe,
-	.remove = bcm4359_bluetooth_remove,
+static struct platform_driver bcm435x_bluetooth_platform_driver = {
+	.probe = bcm435x_bluetooth_probe,
+	.remove = bcm435x_bluetooth_remove,
 	.driver = {
-		   .name = "bcm4359_bluetooth",
+		   .name = "bcm435x_bluetooth",
 		   .owner = THIS_MODULE,
 		   .of_match_table = exynos_bluetooth_match,
 		   },
 };
 
-module_platform_driver(bcm4359_bluetooth_platform_driver);
+module_platform_driver(bcm435x_bluetooth_platform_driver);
 #endif
-MODULE_ALIAS("platform:bcm4359");
-MODULE_DESCRIPTION("bcm4359_bluetooth");
+MODULE_ALIAS("platform:bcm435x");
+MODULE_DESCRIPTION("bcm435x_bluetooth");
 MODULE_LICENSE("GPL");

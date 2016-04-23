@@ -30,5 +30,5 @@ hci_uart-$(CONFIG_BT_HCIUART_LL)	+= hci_ll.o
 hci_uart-$(CONFIG_BT_HCIUART_ATH3K)	+= hci_ath.o
 hci_uart-$(CONFIG_BT_HCIUART_3WIRE)	+= hci_h5.o
 hci_uart-objs				:= $(hci_uart-y)
-obj-$(CONFIG_BT_BCM4358)		+= bcm4358.o
-obj-$(CONFIG_BT_BCM4359)		+= bcm4359.o
+obj-$(CONFIG_BT_BCM4358)		+= bcm435x.o
+obj-$(CONFIG_BT_BCM4359)		+= bcm435x.o
