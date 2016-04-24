@@ -537,8 +537,6 @@ static int __ref __cpu_hotplug(bool out_flag, enum hotplug_cmd cmd)
 		break;
 	}
 #endif
-	int tmp_nr_sleep_prepare_cpus = 0;
-
 	if (exynos_dm_hotplug_disabled())
 		return 0;
 
@@ -549,15 +547,7 @@ static int __ref __cpu_hotplug(bool out_flag, enum hotplug_cmd cmd)
 
 		if (cmd == CMD_SLEEP_PREPARE) {
 			dm_dbg("%s: 1, %s\n", __func__, cmddesc);
-			if(fp_lockscreen_mode)
-				/* for finger-print boosting */
-				tmp_nr_sleep_prepare_cpus = nr_sleep_prepare_cpus + 1;
-			else
-				tmp_nr_sleep_prepare_cpus = nr_sleep_prepare_cpus;
-			printk(KERN_INFO "nr_sleep_prepare_cpus : %d, tmp_nr_sleep_prepare_cpus : %d\n", 
-				nr_sleep_prepare_cpus, tmp_nr_sleep_prepare_cpus);
-
-			for (i = setup_max_cpus - 1; i >= tmp_nr_sleep_prepare_cpus; i--) {
+			for (i = setup_max_cpus - 1; i >= nr_sleep_prepare_cpus; i--) {
                                 if (cpu_online(i)) {
                                         ret = cpu_down(i);
                                         if (ret)
@@ -565,7 +555,7 @@ static int __ref __cpu_hotplug(bool out_flag, enum hotplug_cmd cmd)
                                 }
 			}
 			dm_dbg("%s: 2, %s\n", __func__, cmddesc);
-			for (i = 1; i < tmp_nr_sleep_prepare_cpus; i++) {
+			for (i = 1; i < nr_sleep_prepare_cpus; i++) {
 				if (!cpu_online(i)) {
 					ret = cpu_up(i);
 					if (ret)
@@ -875,26 +865,27 @@ void event_hotplug_in(void)
 }
 #endif
 
-static int __ref exynos_dm_hotplug_notifier(struct notifier_block *notifier,
+static int exynos_dm_hotplug_notifier(struct notifier_block *notifier,
 					unsigned long pm_event, void *v)
 {
-	int i;
-
 	switch (pm_event) {
 	case PM_SUSPEND_PREPARE:
 		mutex_lock(&thread_lock);
 		in_suspend_prepared = true;
-
+		if(nr_sleep_prepare_cpus > 1) {
+			pr_info("%s, %d : dynamic_hotplug CMD_SLEEP_PREPARE\n", __func__, __LINE__);
+			if (!dynamic_hotplug(CMD_SLEEP_PREPARE))
+				prev_cmd = CMD_LOW_POWER;
+		}
+		else {
+			if (!dynamic_hotplug(CMD_LOW_POWER))
+				prev_cmd = CMD_LOW_POWER;
+		}
 		exynos_dm_hotplug_disable();
 		if (dm_hotplug_task) {
 			kthread_stop(dm_hotplug_task);
 			dm_hotplug_task = NULL;
 		}
-
-		for (i = 1; i < NR_CLUST0_CPUS; i++) {
-			cpu_up(i);
-		}
-
 		mutex_unlock(&thread_lock);
 		break;
 
@@ -913,9 +904,6 @@ static int __ref exynos_dm_hotplug_notifier(struct notifier_block *notifier,
 		in_suspend_prepared = false;
 
 		wake_up_process(dm_hotplug_task);
-
-		if (!dynamic_hotplug(CMD_NORMAL))
-			prev_cmd = CMD_NORMAL;
 
 		mutex_unlock(&thread_lock);
 		break;

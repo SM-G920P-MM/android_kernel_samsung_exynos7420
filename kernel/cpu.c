@@ -572,16 +572,11 @@ void __weak arch_enable_nonboot_cpus_end(void)
 {
 }
 
-#if defined(CONFIG_SCHED_HMP) && defined(CONFIG_EXYNOS5_DYNAMIC_CPU_HOTPLUG)
-extern struct cpumask hmp_slow_cpu_mask;
-extern int disable_dm_hotplug_before_suspend;
-#endif
-
-#if defined(CONFIG_SENSORS_FP_LOCKSCREEN_MODE)
-extern bool fp_lockscreen_mode;
-#else
-static bool fp_lockscreen_mode = false;
-#endif
+static bool is_woken_by_button = false;
+void set_is_woken_by_button(bool val)
+{
+	is_woken_by_button = val;
+}
 
 void __ref enable_nonboot_cpus(void)
 {
@@ -597,11 +592,6 @@ void __ref enable_nonboot_cpus(void)
 
 	arch_enable_nonboot_cpus_begin();
 
-#if defined(CONFIG_SCHED_HMP) && defined(CONFIG_EXYNOS5_DYNAMIC_CPU_HOTPLUG)
-	if (!disable_dm_hotplug_before_suspend && !fp_lockscreen_mode)
-		cpumask_and(frozen_cpus, frozen_cpus, &hmp_slow_cpu_mask);
-#endif
-
 	for_each_cpu(cpu, frozen_cpus) {
 		error = _cpu_up(cpu, 1);
 		if (!error) {
@@ -616,6 +606,12 @@ void __ref enable_nonboot_cpus(void)
 	cpumask_clear(frozen_cpus);
 out:
 	cpu_maps_update_done();
+
+	if (is_woken_by_button) {
+		is_woken_by_button = false;
+		for_each_possible_cpu(cpu)
+			cpu_up(cpu);
+	}
 }
 
 static int __init alloc_frozen_cpus(void)
