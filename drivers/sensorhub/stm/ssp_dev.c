@@ -551,6 +551,8 @@ static int ssp_probe(struct spi_device *spi)
 
 	set_gyro_cal_lib_enable(data, true);
 
+	device_enable_async_suspend(&spi->dev);
+
 	goto exit;
 
 err_create_batch_workqueue:
