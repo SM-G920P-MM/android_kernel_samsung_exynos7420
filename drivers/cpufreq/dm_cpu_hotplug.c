@@ -905,9 +905,6 @@ static int exynos_dm_hotplug_notifier(struct notifier_block *notifier,
 
 		wake_up_process(dm_hotplug_task);
 
-		if (!dynamic_hotplug(CMD_NORMAL))
-			prev_cmd = CMD_NORMAL;
-
 		mutex_unlock(&thread_lock);
 		break;
 	}
