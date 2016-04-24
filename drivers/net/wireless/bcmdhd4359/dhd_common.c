@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_common.c 606280 2015-12-15 05:28:25Z $
+ * $Id: dhd_common.c 610549 2016-01-07 07:17:20Z $
  */
 #include <typedefs.h>
 #include <osl.h>
@@ -2153,14 +2153,14 @@ wl_host_event_get_data(void *pktdata, wl_event_msg_t *event, void **data_ptr)
 }
 
 int
-wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata,
+wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata, size_t pktlen,
 	wl_event_msg_t *event, void **data_ptr, void *raw_event)
 {
 	bcm_event_t *pvt_data;
 	uint8 *event_data;
 	uint32 type, status, datalen;
 	uint16 flags;
-	int evlen;
+	uint evlen;
 
 	/* make sure it is a BRCM event pkt and record event data */
 	int ret = wl_host_event_get_data(pktdata, event, data_ptr);
@@ -2168,14 +2168,36 @@ wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata,
 		return ret;
 	}
 
+	if (pktlen < sizeof(bcm_event_t)) {
+		return (BCME_ERROR);
+	}
+
 	pvt_data = (bcm_event_t *)pktdata;
+
+	if (ntoh16_ua((void *)&pvt_data->bcm_hdr.subtype) != BCMILCP_SUBTYPE_VENDOR_LONG ||
+		(bcmp(BRCM_OUI, &pvt_data->bcm_hdr.oui[0], DOT11_OUI_LEN)) ||
+		ntoh16_ua((void *)&pvt_data->bcm_hdr.usr_subtype) != BCMILCP_BCM_SUBTYPE_EVENT)
+	{
+		DHD_ERROR(("%s: mismatched bcm_event_t info, bailing out\n", __FUNCTION__));
+		return (BCME_ERROR);
+	}
+
 	event_data = *data_ptr;
 
 	type = ntoh32_ua((void *)&event->event_type);
 	flags = ntoh16_ua((void *)&event->flags);
 	status = ntoh32_ua((void *)&event->status);
 	datalen = ntoh32_ua((void *)&event->datalen);
+
+	if (datalen > pktlen) {
+		return (BCME_ERROR);
+	}
+
 	evlen = datalen + sizeof(bcm_event_t);
+
+	if (evlen > pktlen) {
+		return (BCME_ERROR);
+	}
 
 	switch (type) {
 #ifdef PROP_TXSTATUS
