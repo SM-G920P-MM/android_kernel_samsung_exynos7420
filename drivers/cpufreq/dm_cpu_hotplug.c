@@ -537,8 +537,6 @@ static int __ref __cpu_hotplug(bool out_flag, enum hotplug_cmd cmd)
 		break;
 	}
 #endif
-	int tmp_nr_sleep_prepare_cpus = 0;
-
 	if (exynos_dm_hotplug_disabled())
 		return 0;
 
@@ -549,15 +547,7 @@ static int __ref __cpu_hotplug(bool out_flag, enum hotplug_cmd cmd)
 
 		if (cmd == CMD_SLEEP_PREPARE) {
 			dm_dbg("%s: 1, %s\n", __func__, cmddesc);
-			if(fp_lockscreen_mode)
-				/* for finger-print boosting */
-				tmp_nr_sleep_prepare_cpus = nr_sleep_prepare_cpus + 1;
-			else
-				tmp_nr_sleep_prepare_cpus = nr_sleep_prepare_cpus;
-			printk(KERN_INFO "nr_sleep_prepare_cpus : %d, tmp_nr_sleep_prepare_cpus : %d\n", 
-				nr_sleep_prepare_cpus, tmp_nr_sleep_prepare_cpus);
-
-			for (i = setup_max_cpus - 1; i >= tmp_nr_sleep_prepare_cpus; i--) {
+			for (i = setup_max_cpus - 1; i >= nr_sleep_prepare_cpus; i--) {
                                 if (cpu_online(i)) {
                                         ret = cpu_down(i);
                                         if (ret)
@@ -565,7 +555,7 @@ static int __ref __cpu_hotplug(bool out_flag, enum hotplug_cmd cmd)
                                 }
 			}
 			dm_dbg("%s: 2, %s\n", __func__, cmddesc);
-			for (i = 1; i < tmp_nr_sleep_prepare_cpus; i++) {
+			for (i = 1; i < nr_sleep_prepare_cpus; i++) {
 				if (!cpu_online(i)) {
 					ret = cpu_up(i);
 					if (ret)
