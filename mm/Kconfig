@@ -610,16 +610,6 @@ config PGTABLE_MAPPING
 	  You can check speed with zsmalloc benchmark[1].
 	  [1] https://github.com/spartacus06/zsmalloc
 
-config MIN_DIRTY_THRESH_PAGES
-	int "The lower bound of VM dirty_thresh value in number of pages"
-	default 2560
-	help
-	  Setting this to certain positive number guaranttees
-	  the VM Dirty-Thresh valus is always larger than that value.
-	  It is only effective when dirty_ratio is used. (Setting dirty_bytes
-	  disables this option.)
-	  Do not use it if you unsure.
-
 config BALANCE_ANON_FILE_RECLAIM
 	bool "During reclaim treat anon and file backed pages equally"
 	depends on SWAP
