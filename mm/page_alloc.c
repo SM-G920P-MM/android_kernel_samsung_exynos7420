@@ -5539,9 +5539,9 @@ static void __setup_per_zone_wmarks(void)
 		u64 min, low;
 
 		spin_lock_irqsave(&zone->lock, flags);
-		min = (u64)pages_min * zone->managed_pages;
+		min = (u64)pages_min * zone->present_pages;
 		do_div(min, lowmem_pages);
-		low = (u64)pages_low * zone->managed_pages;
+		low = (u64)pages_low * zone->present_pages;
 		do_div(low, vm_total_pages);
 
 		if (is_highmem(zone)) {
