@@ -601,19 +601,11 @@ on boot
     # level system server to be able to adjust the kernel OOM driver
     # parameters to match how it is managing things.
     write /proc/sys/vm/overcommit_memory 1
-    write /proc/sys/vm/min_free_kbytes 16384
-    write /proc/sys/vm/user_reserve_kbytes 131072
+    write /proc/sys/vm/min_free_order_shift 4
     chown root system /sys/module/lowmemorykiller/parameters/adj
-    chmod 0220 /sys/module/lowmemorykiller/parameters/adj
-    chown root root /sys/module/lowmemorykiller/parameters/minfree
-    chmod 0660 /sys/module/lowmemorykiller/parameters/minfree
-    write /sys/module/lowmemorykiller/parameters/minfree 18432,20480,22528,25600,28672,32768
-    chown root root /sys/module/lowmemorykiller/parameters/vmpressure_file_min
-    chmod 0660 /sys/module/lowmemorykiller/parameters/vmpressure_file_min
-    write /sys/module/lowmemorykiller/parameters/vmpressure_file_min 40960
-    chmod 0220 /sys/module/lowmemorykiller/parameters/minfree
-    chown root system /sys/module/lowmemorykiller/parameters/nul
-    chmod 0220 /sys/module/lowmemorykiller/parameters/nul
+    chmod 0664 /sys/module/lowmemorykiller/parameters/adj
+    chown root system /sys/module/lowmemorykiller/parameters/minfree
+    chmod 0664 /sys/module/lowmemorykiller/parameters/minfree
     # for BT MAC address
     mkdir /efs/bluetooth 0775 radio system
     # if already exist
@@ -621,7 +613,7 @@ on boot
     chmod 0775 /efs/bluetooth
 
     # Tweak background writeout
-    write /proc/sys/vm/dirty_expire_centisecs 3000
+    write /proc/sys/vm/dirty_expire_centisecs 200
     write /proc/sys/vm/dirty_background_ratio  5
 
     # Permissions for System Server and daemons.
@@ -1206,7 +1198,7 @@ service adbd /sbin/adbd
 on property:ro.kernel.qemu=1
     start adbd
 
-service lmkd /sbin/lmkd
+service lmkd /system/bin/lmkd
     class core
     critical
     socket lmkd seqpacket 0660 system system
