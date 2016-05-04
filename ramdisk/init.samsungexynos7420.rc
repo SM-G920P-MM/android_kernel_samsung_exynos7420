@@ -370,15 +370,6 @@ on boot
     write /dev/cpuset/background/cpus 0
     write /dev/cpuset/system-background/cpus 0-3
 
-    mkdir /dev/cpuset/invisible
-    chown system system /dev/cpuset/invisible
-    chown system system /dev/cpuset/invisible/tasks
-    chmod 0755 /dev/cpuset/invisible
-    chmod 0644 /dev/cpuset/invisible/tasks
-    write /dev/cpuset/invisible/cpus 0
-    write /dev/cpuset/invisible/mems 0
-    write /dev/cpuset/invisible/cpus 0-3
-
     # io_is_busy
     write /sys/devices/system/cpu/cpu0/cpufreq/interactive/io_is_busy 1
     write /sys/devices/system/cpu/cpu4/cpufreq/interactive/io_is_busy 1
@@ -455,6 +446,10 @@ on boot
 
 #MST HW Support
     setprop ro.mst.support 1
+
+    start bootsh
+    wait /data/.arter97/invisible_cpuset
+    start uci
 
 on fs
     start fs_mount
@@ -780,6 +775,16 @@ service fingerprintd /system/bin/fingerprintd
 service watchdogd /sbin/watchdogd 10 20
     class core
     seclabel u:r:watchdogd:s0
+
+service bootsh /init.boot.sh
+    user root
+    oneshot
+    disabled
+
+service uci /sbin/uci
+    user root
+    oneshot
+    disabled
 
 # on userdebug and eng builds, enable kgdb on the serial console
 on property:ro.debuggable=1
