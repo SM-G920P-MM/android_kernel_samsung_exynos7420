@@ -370,6 +370,15 @@ on boot
     write /dev/cpuset/background/cpus 0
     write /dev/cpuset/system-background/cpus 0-3
 
+    mkdir /dev/cpuset/invisible
+    chown system system /dev/cpuset/invisible
+    chown system system /dev/cpuset/invisible/tasks
+    chmod 0755 /dev/cpuset/invisible
+    chmod 0644 /dev/cpuset/invisible/tasks
+    write /dev/cpuset/invisible/cpus 0
+    write /dev/cpuset/invisible/mems 0
+    write /dev/cpuset/invisible/cpus 0-3
+
     # io_is_busy
     write /sys/devices/system/cpu/cpu0/cpufreq/interactive/io_is_busy 1
     write /sys/devices/system/cpu/cpu4/cpufreq/interactive/io_is_busy 1
