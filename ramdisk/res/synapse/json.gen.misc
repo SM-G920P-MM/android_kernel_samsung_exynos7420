@@ -1,0 +1,38 @@
+#!/res/busybox sh
+
+export PATH=/res/asset:$PATH
+
+cat << CTAG
+{
+    name:Misc,
+    elements:[
+	{ SCheckBox:{
+		description:"Use super aggressive LMK(LowMemoryKiller) for better responsiveness at the cost of battery life and multitasking capabilities.",
+		label:"Enable Adaptive LMK",
+		default:`cat /sys/module/lowmemorykiller/parameters/enable_adaptive_lmk`,
+                action:"generic /sys/module/lowmemorykiller/parameters/enable_adaptive_lmk"
+	}},
+
+	{ SSeekBar:{
+		title:"Adaptive LMK vmpressure threshold",
+		min:40960, max:131072, unit:" kB", step:1024,
+		default:`cat /sys/module/lowmemorykiller/parameters/vmpressure_file_min`,
+                action:"generic /sys/module/lowmemorykiller/parameters/vmpressure_file_min"
+	}},
+
+	{ SCheckBox:{
+		description:"Disable only if you experience problems with other LED-using applications.",
+		label:"Enable fading LED",
+		default:`cat /sys/devices/virtual/sec/led/led_notification_ramp_control`,
+                action:"generic /sys/devices/virtual/sec/led/led_notification_ramp_control"
+	}},
+
+	{ SCheckBox:{
+		description:"All background applications are prohibited from using big(A57) cores. Enabling this option will give you better batter life. Background applications such as music may cause weird behaviors. Reboot is required after changing this value.",
+		label:"Move invisible apps to A53",
+		default:`cat /data/.arter97/invisible_cpuset`,
+		action:"generic /data/.arter97/invisible_cpuset"
+	}},
+    ]
+}
+CTAG
