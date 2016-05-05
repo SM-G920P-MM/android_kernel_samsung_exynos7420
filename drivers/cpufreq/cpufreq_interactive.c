@@ -169,7 +169,6 @@ struct cpufreq_interactive_tunables {
 	int boostpulse_duration_val;
 	/* End time of boost pulse in ktime converted to usecs */
 	u64 boostpulse_endtime;
-	bool boosted;
 	/*
 	 * Max additional time to wait in idle, beyond timer_rate, at speeds
 	 * above minimum before wakeup to reduce speed, or -1 if unnecessary.
@@ -307,11 +306,7 @@ static void cpufreq_interactive_timer_resched(
 				  tunables->io_is_busy);
 	pcpu->cputime_speedadj = 0;
 	pcpu->cputime_speedadj_timestamp = pcpu->time_in_idle_timestamp;
-	expires = jiffies;
-	if (suspended)
-		expires += (tunables->timer_rate * 2);
-	else
-		expires += tunables->timer_rate;
+	expires = jiffies + tunables->timer_rate;
 	mod_timer_pinned(&pcpu->cpu_timer, expires);
 
 	if (tunables->timer_slack_val >= 0 &&
@@ -331,7 +326,7 @@ static void cpufreq_interactive_timer_start(
 	struct cpufreq_interactive_tunables *tunables, int cpu)
 {
 	struct cpufreq_interactive_cpuinfo *pcpu = &per_cpu(cpuinfo, cpu);
-	unsigned long expires;
+	unsigned long expires = jiffies + tunables->timer_rate;
 	unsigned long flags;
 
 #ifdef CONFIG_PMU_COREMEM_RATIO
@@ -340,12 +335,6 @@ static void cpufreq_interactive_timer_start(
 	if (!tunables->speedchange_task)
 #endif
 		return;
-
-	expires = jiffies;
-	if (suspended)
-		expires += (tunables->timer_rate * 2);
-	else
-		expires += tunables->timer_rate;
 
 	pcpu->cpu_timer.expires = expires;
 	add_timer_on(&pcpu->cpu_timer, cpu);
@@ -543,16 +532,16 @@ static unsigned int check_mode(int cpu, unsigned int cur_mode, u64 now)
 	struct cpufreq_interactive_tunables *tunables =
 		pcpu->policy->governor_data;
 
-	if (now - tunables->mode_check_timestamp < tunables->timer_rate - USEC_PER_MSEC)
+	if (now - tunables->mode_check_timestamp < jiffies_to_usecs(tunables->timer_rate) - USEC_PER_MSEC)
 		return ret;
 
-	if (now - tunables->mode_check_timestamp > tunables->timer_rate + USEC_PER_MSEC)
-		tunables->mode_check_timestamp = now - tunables->timer_rate;
+	if (now - tunables->mode_check_timestamp > jiffies_to_usecs(tunables->timer_rate) + USEC_PER_MSEC)
+		tunables->mode_check_timestamp = now - jiffies_to_usecs(tunables->timer_rate);
 
 	if(cpumask_test_cpu(cpu, &hmp_fast_cpu_mask)) {
 		for_each_cpu_mask(i, hmp_fast_cpu_mask) {
 			cur_loadinfo = &per_cpu(loadinfo, i);
-			if (now - cur_loadinfo->timestamp <= tunables->timer_rate + USEC_PER_MSEC) {
+			if (now - cur_loadinfo->timestamp <= jiffies_to_usecs(tunables->timer_rate) + USEC_PER_MSEC) {
 				total_load += cur_loadinfo->load;
 				if (cur_loadinfo->load > max_single_load)
 					max_single_load = cur_loadinfo->load;
@@ -689,6 +678,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	unsigned int loadadjfreq;
 	unsigned int index;
 	unsigned long flags;
+	bool boosted;
 #ifdef CONFIG_MODE_AUTO_CHANGE
 	unsigned int new_mode;
 #endif
@@ -731,7 +721,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	do_div(cputime_speedadj, delta_time);
 	loadadjfreq = (unsigned int)cputime_speedadj * 100;
 	cpu_load = loadadjfreq / pcpu->policy->cur;
-	tunables->boosted = tunables->boost_val || now < tunables->boostpulse_endtime;
+	boosted = tunables->boost_val || now < tunables->boostpulse_endtime;
 
 #ifdef CONFIG_PMU_COREMEM_RATIO
 	/* Get crypto load information from PMU */
@@ -751,7 +741,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	}
 #endif
 
-	if ((cpu_load >= tunables->go_hispeed_load || tunables->boosted) && !suspended) {
+	if ((cpu_load >= tunables->go_hispeed_load && !suspended) || boosted) {
 		if (pcpu->policy->cur < tunables->hispeed_freq) {
 			new_freq = tunables->hispeed_freq;
 		} else {
@@ -819,7 +809,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	 * (or the indefinite boost is turned off).
 	 */
 
-	if (!tunables->boosted || new_freq > tunables->hispeed_freq) {
+	if (!boosted || new_freq > tunables->hispeed_freq) {
 		pcpu->floor_freq = new_freq;
 		pcpu->floor_validate_time = now;
 	}
@@ -1043,15 +1033,14 @@ static int cpufreq_interactive_speedchange_task(void *data)
 	return 0;
 }
 
-static void cpufreq_interactive_boost(const struct cpufreq_policy *policy, struct cpufreq_interactive_tunables *tunables)
+static void cpufreq_interactive_boost(const struct cpufreq_policy *policy)
 {
 	int i;
 	int anyboost = 0;
 	unsigned long flags[2];
 	struct cpufreq_interactive_cpuinfo *pcpu;
+	struct cpufreq_interactive_tunables *tunables;
 	struct cpumask boost_mask;
-
-	tunables->boosted = true;
 
 	spin_lock_irqsave(&speedchange_cpumask_lock, flags[0]);
 
@@ -1062,8 +1051,7 @@ static void cpufreq_interactive_boost(const struct cpufreq_policy *policy, struc
 
 	for_each_cpu(i, &boost_mask) {
 		pcpu = &per_cpu(cpuinfo, i);
-		if (tunables != pcpu->policy->governor_data)
-			continue;
+		tunables = pcpu->policy->governor_data;
 
 		spin_lock_irqsave(&pcpu->target_freq_lock, flags[1]);
 		if (pcpu->target_freq < tunables->hispeed_freq) {
@@ -1099,7 +1087,7 @@ static int cpufreq_interactive_notifier(
 	int cpu;
 	unsigned long flags;
 
-	if (val == CPUFREQ_PRECHANGE) {
+	if (val == CPUFREQ_POSTCHANGE) {
 		pcpu = &per_cpu(cpuinfo, freq->cpu);
 		if (!down_read_trylock(&pcpu->enable_sem))
 			return 0;
@@ -1517,8 +1505,7 @@ static ssize_t store_boost(struct cpufreq_interactive_tunables *tunables,
 
 	if (tunables->boost_val) {
 		trace_cpufreq_interactive_boost("on");
-		if (!tunables->boosted)
-			cpufreq_interactive_boost(policy, tunables);
+		cpufreq_interactive_boost(policy);
 	} else {
 		tunables->boostpulse_endtime = ktime_to_us(ktime_get());
 		trace_cpufreq_interactive_unboost("off");
@@ -1542,8 +1529,7 @@ static ssize_t store_boostpulse(struct cpufreq_interactive_tunables *tunables,
 	tunables->boostpulse_endtime = ktime_to_us(ktime_get()) +
 		tunables->boostpulse_duration_val;
 	trace_cpufreq_interactive_boost("pulse");
-	if (!tunables->boosted)
-		cpufreq_interactive_boost(policy, tunables);
+	cpufreq_interactive_boost(policy);
 	return count;
 }
 
@@ -1829,7 +1815,7 @@ static ssize_t show_cpu_util(struct cpufreq_interactive_tunables
 			pcpu = &per_cpu(cpuinfo, i);
 			get_cpu_idle_time(i, &now, tunables->io_is_busy);
 
-			if (now - pcpu->time_in_idle_timestamp <= tunables->timer_rate)
+			if (now - pcpu->time_in_idle_timestamp <= jiffies_to_usecs(tunables->timer_rate))
 				ret += sprintf(buf + ret, "%3u ", per_cpu(cpu_util, i));
 			else
 				ret += sprintf(buf + ret, "%3s ", (pcpu->target_freq == pcpu->policy->max) ? "H_I" : "L_I");
