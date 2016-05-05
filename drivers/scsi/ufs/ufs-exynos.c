@@ -1563,8 +1563,6 @@ static int exynos_ufs_probe(struct platform_device *pdev)
 	dev->platform_data = ufs;
 	dev->dma_mask = &exynos_ufs_dma_mask;
 
-	device_enable_async_suspend(&pdev->dev);
-
 	return ufshcd_pltfrm_init(pdev, match->data);
 }
 
