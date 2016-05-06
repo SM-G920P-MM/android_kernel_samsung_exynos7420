@@ -446,7 +446,6 @@ on boot
     setprop ro.mst.support 1
 
     start bootsh
-    wait /data/.arter97/invisible_cpuset
     start uci
 
 on fs
