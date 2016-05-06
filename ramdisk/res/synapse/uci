@@ -5,15 +5,15 @@ export PATH=/res/asset:$PATH
 CONFIG_JSON=/res/synapse/config.json
 ACTION_SCRIPTS=/res/synapse/actions/
 
+mkdir -p /data/.arter97
+if [ ! -e /data/.arter97/invisible_cpuset ]; then
+	echo "0" > /data/.arter97/invisible_cpuset
+fi
+
 if [ ! -f $CONFIG_JSON ]; then
 	mount -o rw,remount rootfs
 	source /res/synapse/json.generate > $CONFIG_JSON
 	mount -o ro,remount rootfs
-fi
-
-mkdir -p /data/.arter97
-if [ ! -e /data/.arter97/invisible_cpuset ]; then
-	echo "0" > /data/.arter97/invisible_cpuset
 fi
 
 case "${1}" in
